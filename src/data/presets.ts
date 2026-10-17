@@ -9,6 +9,8 @@ export const PRESET_PROJECTS: VideoProject[] = [
     category: 'science',
     duration: 30,
     canvasTheme: 'cosmic',
+    detectedSourceLanguage: 'English',
+    languageConfidence: 0.98,
     speakers: [
       {
         id: 'spk-astrophysicist',
@@ -24,6 +26,8 @@ export const PRESET_PROJECTS: VideoProject[] = [
         isCloned: true,
         voiceCloneType: 'auto-extracted',
         timbreDescription: 'Clear, luminous female academic tone',
+        elevenLabsVoiceId: 'c38kUX8pkfYO2kHyqfFy',
+        elevenLabsCloneStatus: 'verified',
       },
       {
         id: 'spk-host',
@@ -40,6 +44,8 @@ export const PRESET_PROJECTS: VideoProject[] = [
         voiceCloneType: 'auto-extracted',
         clonedNotes: 'Cloned from studio broadcast narrator profile',
         timbreDescription: 'Warm, dynamic male presenter timbre',
+        elevenLabsVoiceId: '21m00Tcm4TlvDq8ikWAM',
+        elevenLabsCloneStatus: 'verified',
       },
     ],
     segments: [

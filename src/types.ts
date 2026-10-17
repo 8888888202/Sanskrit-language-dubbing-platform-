@@ -55,6 +55,8 @@ export interface Speaker {
   clonedAudioUrl?: string;
   originalAudioSnippetUrl?: string;
   estimatedPitchHz?: number;
+  elevenLabsVoiceId?: string;
+  elevenLabsCloneStatus?: 'created' | 'pending' | 'verified';
 }
 
 export interface VideoProject {
@@ -70,6 +72,8 @@ export interface VideoProject {
   speakers: Speaker[];
   isCustomUpload?: boolean;
   autoDiarizationDone?: boolean;
+  detectedSourceLanguage?: string;
+  languageConfidence?: number;
 }
 
 export interface EmotionInfo {

@@ -31,9 +31,13 @@ export class VoiceAnalyzerService {
   /**
    * Analyze audio from a video file or URL to extract original speaker profiles and audio snippets
    */
+  /**
+   * Analyze audio from a video file or URL to extract original speaker profiles and audio snippets
+   * Automatically detects if there is 1 solo speaker or multiple speakers based on bimodal pitch distribution
+   */
   async extractOriginalSpeakersFromMedia(
     source: File | string,
-    targetSpeakerCount = 2
+    requestedSpeakerCount?: number | 'auto'
   ): Promise<ExtractedVoiceProfile[]> {
     try {
       let arrayBuffer: ArrayBuffer;
@@ -42,8 +46,8 @@ export class VoiceAnalyzerService {
         const resp = await fetch(source);
         arrayBuffer = await resp.arrayBuffer();
       } else {
-        // Read up to first 20MB of uploaded file for fast acoustic analysis
-        const slice = source.slice(0, 20 * 1024 * 1024);
+        // Read up to first 30MB of uploaded file for acoustic analysis
+        const slice = source.slice(0, 30 * 1024 * 1024);
         arrayBuffer = await slice.arrayBuffer();
       }
 
@@ -57,62 +61,113 @@ export class VoiceAnalyzerService {
       const pitches = this.extractPitchesFromAudio(channelData, sampleRate);
       
       if (pitches.length === 0) {
-        // Fallback default profiles if silence
-        return this.getDefaultVoiceProfiles(targetSpeakerCount);
+        // Fallback default profile (1 speaker by default)
+        const targetCount = typeof requestedSpeakerCount === 'number' ? requestedSpeakerCount : 1;
+        return this.getDefaultVoiceProfiles(targetCount);
       }
 
-      // Sort pitches to detect multi-speaker distribution
-      pitches.sort((a, b) => a.pitch - b.pitch);
+      // Calculate pitch values
+      const pitchValues = pitches.map(p => p.pitch);
+      pitchValues.sort((a, b) => a - b);
+      const medianPitch = pitchValues[Math.floor(pitchValues.length / 2)];
       
-      const lowerHalf = pitches.slice(0, Math.floor(pitches.length / 2));
-      const upperHalf = pitches.slice(Math.floor(pitches.length / 2));
+      // Calculate 25th and 75th percentiles (IQR)
+      const q25 = pitchValues[Math.floor(pitchValues.length * 0.25)];
+      const q75 = pitchValues[Math.floor(pitchValues.length * 0.75)];
+      const iqr = q75 - q25;
 
-      const avgPitch1 = lowerHalf.length > 0 
-        ? lowerHalf.reduce((sum, p) => sum + p.pitch, 0) / lowerHalf.length 
-        : 125;
+      // Real acoustic criteria for TWO distinct speakers:
+      // A genuine male-female dialogue has a wide, bimodal distribution with separate peaks
+      // (one in ~90-145 Hz range and another in ~190-260 Hz range)
+      // If IQR is moderate (< 55Hz) or if 75%+ of speech is within one register, it is a SINGLE speaker!
+      const deepMaleFrames = pitchValues.filter(p => p >= 85 && p <= 150);
+      const highFemaleFrames = pitchValues.filter(p => p >= 180 && p <= 280);
+      const deepMaleRatio = deepMaleFrames.length / pitchValues.length;
+      const highFemaleRatio = highFemaleFrames.length / pitchValues.length;
 
-      const avgPitch2 = upperHalf.length > 0
-        ? upperHalf.reduce((sum, p) => sum + p.pitch, 0) / upperHalf.length
-        : 210;
+      // Both male and female registers must each have heavy, sustained representation (>35% each)
+      // AND a wide IQR (>65Hz) to qualify as genuine multi-speaker dialogue
+      const hasStrongBimodalDialogue = (deepMaleRatio > 0.35 && highFemaleRatio > 0.35 && iqr > 65);
+      
+      // Determine final speaker count:
+      let count = 1;
+      if (typeof requestedSpeakerCount === 'number' && requestedSpeakerCount > 0) {
+        count = requestedSpeakerCount;
+      } else if (requestedSpeakerCount === 'auto' || requestedSpeakerCount === undefined) {
+        count = hasStrongBimodalDialogue ? 2 : 1;
+      }
 
       const profiles: ExtractedVoiceProfile[] = [];
 
-      // Speaker 1 profile
-      const isMale1 = avgPitch1 < 165;
-      const pitchMult1 = isMale1 
-        ? Math.max(0.85, Math.min(1.2, avgPitch1 / 125)) 
-        : Math.max(0.9, Math.min(1.25, avgPitch1 / 210));
-      
-      const snippet1 = this.sliceAudioSnippet(audioBuffer, lowerHalf[0]?.timeSec || 0, 4);
-
-      profiles.push({
-        speakerId: 'spk-1',
-        name: `Original Speaker 1 (${isMale1 ? 'Male' : 'Female'})`,
-        gender: isMale1 ? 'male' : 'female',
-        estimatedPitchHz: Math.round(avgPitch1),
-        pitchMultiplier: parseFloat(pitchMult1.toFixed(2)),
-        recommendedVoiceName: isMale1 ? (avgPitch1 < 115 ? 'Charon' : 'Fenrir') : 'Kore',
-        timbreDescription: `Extracted from original video: ${Math.round(avgPitch1)}Hz ${isMale1 ? 'baritone resonance' : 'soprano clarity'}`,
-        originalAudioSnippetUrl: snippet1,
-      });
-
-      // Speaker 2 profile if requested
-      if (targetSpeakerCount >= 2) {
-        const isMale2 = avgPitch2 < 165;
-        const pitchMult2 = isMale2 
-          ? Math.max(0.85, Math.min(1.2, avgPitch2 / 125)) 
-          : Math.max(0.9, Math.min(1.25, avgPitch2 / 210));
+      if (count === 1) {
+        // Single solo speaker detected!
+        // Pitch F0 threshold: < 165Hz is male, >= 165Hz is female
+        const isMale = medianPitch < 165;
+        const baseNormPitch = isMale ? 125 : 215;
+        const pitchMult = Math.max(0.85, Math.min(1.2, medianPitch / baseNormPitch));
         
-        const snippet2 = this.sliceAudioSnippet(audioBuffer, upperHalf[upperHalf.length - 1]?.timeSec || Math.min(duration - 4, 6), 4);
+        // Find highest-energy clean speech snippet from middle of speech
+        const midIdx = Math.floor(pitches.length * 0.35);
+        const snippetTime = pitches[midIdx]?.timeSec || 1.0;
+        const snippetUrl = this.sliceAudioSnippet(audioBuffer, Math.max(0, snippetTime - 0.5), 4.5);
+
+        const recVoice = isMale 
+          ? (medianPitch < 115 ? 'Charon' : 'Fenrir')
+          : (medianPitch > 220 ? 'Zephyr' : 'Kore');
+
+        profiles.push({
+          speakerId: 'spk-1',
+          name: `Original Speaker (${isMale ? 'Male' : 'Female'})`,
+          gender: isMale ? 'male' : 'female',
+          estimatedPitchHz: Math.round(medianPitch),
+          pitchMultiplier: parseFloat(pitchMult.toFixed(2)),
+          recommendedVoiceName: recVoice,
+          timbreDescription: `Detected original ${isMale ? 'male baritone/tenor' : 'female soprano/alto'} (${Math.round(medianPitch)} Hz)`,
+          originalAudioSnippetUrl: snippetUrl,
+        });
+      } else {
+        // Multi-speaker dialogue detected (or explicitly requested by user)
+        const avgPitch1 = deepMaleFrames.length > 0
+          ? deepMaleFrames.reduce((s, p) => s + p, 0) / deepMaleFrames.length
+          : Math.max(90, medianPitch - 30);
+
+        const avgPitch2 = highFemaleFrames.length > 0
+          ? highFemaleFrames.reduce((s, p) => s + p, 0) / highFemaleFrames.length
+          : Math.min(250, medianPitch + 35);
+
+        const isMale1 = avgPitch1 < 165;
+        const isMale2 = avgPitch2 < 165;
+
+        const snippet1 = this.sliceAudioSnippet(
+          audioBuffer, 
+          pitches[0]?.timeSec || 0.5, 
+          4.5
+        );
+        const snippet2 = this.sliceAudioSnippet(
+          audioBuffer, 
+          pitches[Math.floor(pitches.length * 0.7)]?.timeSec || Math.min(duration - 5, 6), 
+          4.5
+        );
+
+        profiles.push({
+          speakerId: 'spk-1',
+          name: `Original Speaker 1 (${isMale1 ? 'Male' : 'Female'})`,
+          gender: isMale1 ? 'male' : 'female',
+          estimatedPitchHz: Math.round(avgPitch1),
+          pitchMultiplier: parseFloat((avgPitch1 / (isMale1 ? 125 : 215)).toFixed(2)),
+          recommendedVoiceName: isMale1 ? 'Fenrir' : 'Kore',
+          timbreDescription: `Speaker 1: ${Math.round(avgPitch1)}Hz ${isMale1 ? 'male' : 'female'} timbre`,
+          originalAudioSnippetUrl: snippet1,
+        });
 
         profiles.push({
           speakerId: 'spk-2',
           name: `Original Speaker 2 (${isMale2 ? 'Male' : 'Female'})`,
           gender: isMale2 ? 'male' : 'female',
           estimatedPitchHz: Math.round(avgPitch2),
-          pitchMultiplier: parseFloat(pitchMult2.toFixed(2)),
+          pitchMultiplier: parseFloat((avgPitch2 / (isMale2 ? 125 : 215)).toFixed(2)),
           recommendedVoiceName: isMale2 ? 'Puck' : 'Zephyr',
-          timbreDescription: `Extracted from original video: ${Math.round(avgPitch2)}Hz ${isMale2 ? 'tenor timbre' : 'melodic vocal tone'}`,
+          timbreDescription: `Speaker 2: ${Math.round(avgPitch2)}Hz ${isMale2 ? 'male' : 'female'} timbre`,
           originalAudioSnippetUrl: snippet2,
         });
       }
@@ -120,7 +175,8 @@ export class VoiceAnalyzerService {
       return profiles;
     } catch (err) {
       console.warn('Voice acoustic extraction fallback:', err);
-      return this.getDefaultVoiceProfiles(targetSpeakerCount);
+      const targetCount = typeof requestedSpeakerCount === 'number' ? requestedSpeakerCount : 1;
+      return this.getDefaultVoiceProfiles(targetCount);
     }
   }
 
@@ -180,6 +236,38 @@ export class VoiceAnalyzerService {
     }
 
     return results;
+  }
+
+  /**
+   * Extract audio snippet as a WAV Blob for ElevenLabs IVC voice cloning
+   */
+  async extractAudioSnippetBlob(
+    source: File | string,
+    startSec = 1.0,
+    durationSec = 5.0
+  ): Promise<Blob | null> {
+    try {
+      let arrayBuffer: ArrayBuffer;
+      if (typeof source === 'string') {
+        const resp = await fetch(source);
+        arrayBuffer = await resp.arrayBuffer();
+      } else {
+        const slice = source.slice(0, 30 * 1024 * 1024);
+        arrayBuffer = await slice.arrayBuffer();
+      }
+
+      const ctx = this.getAudioContext();
+      const audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
+      const sampleRate = audioBuffer.sampleRate;
+      const startSample = Math.max(0, Math.floor(startSec * sampleRate));
+      const endSample = Math.min(audioBuffer.length, startSample + Math.floor(durationSec * sampleRate));
+      const channel = audioBuffer.getChannelData(0).subarray(startSample, endSample);
+      const wavBytes = this.encodeWAV(channel, sampleRate);
+      return new Blob([wavBytes.buffer as ArrayBuffer], { type: 'audio/wav' });
+    } catch (e) {
+      console.warn('Failed to extract audio snippet blob:', e);
+      return null;
+    }
   }
 
   /**
@@ -248,15 +336,15 @@ export class VoiceAnalyzerService {
     }
   }
 
-  private getDefaultVoiceProfiles(count = 2): ExtractedVoiceProfile[] {
+  private getDefaultVoiceProfiles(count = 1): ExtractedVoiceProfile[] {
     const p1: ExtractedVoiceProfile = {
       speakerId: 'spk-1',
-      name: 'Original Speaker 1 (Male)',
+      name: count === 1 ? 'Original Speaker (Solo)' : 'Original Speaker 1 (Male)',
       gender: 'male',
       estimatedPitchHz: 125,
       pitchMultiplier: 0.95,
       recommendedVoiceName: 'Fenrir',
-      timbreDescription: 'Deep resonant male baritone matching original speaker',
+      timbreDescription: 'Deep resonant male voice matching original speaker',
     };
 
     const p2: ExtractedVoiceProfile = {
