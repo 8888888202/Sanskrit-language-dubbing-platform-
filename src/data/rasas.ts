@@ -1,0 +1,78 @@
+import { EmotionInfo, EmotionType } from '../types';
+
+export const RASAS: Record<EmotionType, EmotionInfo> = {
+  neutral: {
+    key: 'neutral',
+    label: 'Neutral Studio',
+    sanskritEquivalent: 'मध्यम (Natural)',
+    color: '#94a3b8',
+    badgeBg: 'bg-slate-800 text-slate-200 border-slate-700',
+    description: 'Clean, balanced, objective documentary voice delivery.',
+    stylePrompt: 'Clear, neutral, balanced studio announcer tone with articulate Sanskrit cadence',
+  },
+  calm: {
+    key: 'calm',
+    label: 'Calm & Steady',
+    sanskritEquivalent: 'शान्त (Calm)',
+    color: '#06b6d4',
+    badgeBg: 'bg-cyan-950/70 text-cyan-300 border-cyan-800/70',
+    description: 'Relaxed, contemplative, steady documentary pacing.',
+    stylePrompt: 'Calm, steady, reflective tone with clean articulate Sanskrit pronunciation',
+  },
+  energetic: {
+    key: 'energetic',
+    label: 'Energetic & Confident',
+    sanskritEquivalent: 'उत्साह (Energetic)',
+    color: '#3b82f6',
+    badgeBg: 'bg-blue-950/70 text-blue-300 border-blue-800/70',
+    description: 'Engaging, brisk, inspiring, clear commercial/tech pace.',
+    stylePrompt: 'Energetic, confident, vibrant and articulate voice with modern tempo',
+  },
+  cheerful: {
+    key: 'cheerful',
+    label: 'Cheerful & Friendly',
+    sanskritEquivalent: 'प्रसन्न (Cheerful)',
+    color: '#10b981',
+    badgeBg: 'bg-emerald-950/70 text-emerald-300 border-emerald-800/70',
+    description: 'Warm, positive, lively, conversational inflection.',
+    stylePrompt: 'Friendly, cheerful, upbeat and welcoming vocal delivery',
+  },
+  serious: {
+    key: 'serious',
+    label: 'Serious & Authoritative',
+    sanskritEquivalent: 'गम्भीर (Serious)',
+    color: '#a855f7',
+    badgeBg: 'bg-purple-950/70 text-purple-300 border-purple-800/70',
+    description: 'Authoritative, firm, deep, credible narration.',
+    stylePrompt: 'Authoritative, serious, deep and grounded documentary narrator voice',
+  },
+  compassionate: {
+    key: 'compassionate',
+    label: 'Gentle & Empathetic',
+    sanskritEquivalent: 'करुण (Gentle)',
+    color: '#ec4899',
+    badgeBg: 'bg-pink-950/70 text-pink-300 border-pink-800/70',
+    description: 'Soft, considerate, human, sensitive storytelling.',
+    stylePrompt: 'Gentle, warm, empathetic and soft vocal delivery with natural pauses',
+  },
+  intense: {
+    key: 'intense',
+    label: 'Dramatic & Intense',
+    sanskritEquivalent: 'तीव्र (Intense)',
+    color: '#ef4444',
+    badgeBg: 'bg-red-950/70 text-red-300 border-red-800/70',
+    description: 'High stakes, commanding, dramatic cinematic delivery.',
+    stylePrompt: 'Dramatic, intense, commanding and powerful cinematic projection',
+  },
+  inquisitive: {
+    key: 'inquisitive',
+    label: 'Curious & Inquisitive',
+    sanskritEquivalent: 'जिज्ञासु (Curious)',
+    color: '#f59e0b',
+    badgeBg: 'bg-amber-950/70 text-amber-300 border-amber-800/70',
+    description: 'Inquiring, fascinated, educational exploration.',
+    stylePrompt: 'Inquisitive, curious, bright and engaged tone exploring ideas',
+  },
+};
+
+export const EMOTIONS = RASAS;
