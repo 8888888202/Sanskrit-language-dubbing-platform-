@@ -55,6 +55,7 @@ export interface Speaker {
   clonedAudioUrl?: string;
   originalAudioSnippetUrl?: string;
   estimatedPitchHz?: number;
+  originalAudioBase64?: string;
   elevenLabsVoiceId?: string;
   elevenLabsCloneStatus?: 'created' | 'pending' | 'verified';
 }

@@ -7,12 +7,10 @@ import {
   SkipBack, 
   SkipForward,
   Gauge,
-  Sliders,
-  Sparkles
+  Volume2,
+  VolumeX
 } from 'lucide-react';
 import { VideoProject, DubbingSegment, Speaker } from '../types';
-import { ProceduralVideoCanvas } from './ProceduralVideoCanvas';
-import { RASAS } from '../data/rasas';
 
 interface VideoPlayerProps {
   project: VideoProject;
@@ -28,8 +26,8 @@ interface VideoPlayerProps {
   setPlaybackSpeed: (speed: number) => void;
   audioTrackMode: 'dubbed' | 'original' | 'mixed';
   duckingLevel: number;
-  onCanvasReady?: (canvas: HTMLCanvasElement) => void;
   onJumpToSegment: (segment: DubbingSegment) => void;
+  sourceVideoRef?: React.RefObject<HTMLVideoElement | null>;
 }
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
@@ -46,13 +44,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   setPlaybackSpeed,
   audioTrackMode,
   duckingLevel,
-  onCanvasReady,
   onJumpToSegment,
+  sourceVideoRef: externalVideoRef,
 }) => {
-  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const localVideoRef = useRef<HTMLVideoElement | null>(null);
+  const videoRef = externalVideoRef || localVideoRef;
   const timelineRef = useRef<HTMLDivElement | null>(null);
   const [showSubtitlesMenu, setShowSubtitlesMenu] = useState(false);
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
+  const [isAudioMuted, setIsAudioMuted] = useState(false);
 
   // Time formatting: mm:ss.ms
   const formatTime = (seconds: number) => {
@@ -77,14 +77,60 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isPlaying, setIsPlaying]);
 
-  // Timeline scrubber click / drag
+  // Synchronize native video element play/pause state
+  useEffect(() => {
+    const vid = videoRef.current;
+    if (!vid) return;
+
+    if (isPlaying) {
+      vid.play().catch(err => {
+        // Autoplay policy or interrupted
+        console.warn('Video play interrupted:', err);
+      });
+    } else {
+      vid.pause();
+    }
+  }, [isPlaying, videoRef]);
+
+  // Synchronize native video current time when scrubber moves
+  useEffect(() => {
+    const vid = videoRef.current;
+    if (!vid) return;
+
+    if (Math.abs(vid.currentTime - currentTime) > 0.3) {
+      vid.currentTime = currentTime;
+    }
+  }, [currentTime, videoRef]);
+
+  // Synchronize playback speed
+  useEffect(() => {
+    const vid = videoRef.current;
+    if (!vid) return;
+    vid.playbackRate = playbackSpeed;
+  }, [playbackSpeed, videoRef]);
+
+  // Update currentTime as video plays
+  const handleTimeUpdate = () => {
+    const vid = videoRef.current;
+    if (!vid || !isPlaying) return;
+    setCurrentTime(vid.currentTime);
+  };
+
+  const handleVideoEnded = () => {
+    setIsPlaying(false);
+  };
+
+  // Timeline scrubber click
   const handleTimelineClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!timelineRef.current) return;
     const rect = timelineRef.current.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const fraction = Math.max(0, Math.min(1, clickX / rect.width));
-    const newTime = fraction * project.duration;
+    const newTime = fraction * Math.max(1, project.duration);
     setCurrentTime(newTime);
+    if (videoRef.current) {
+      videoRef.current.currentTime = newTime;
+    }
   };
 
   const handlePrevSegment = () => {
@@ -93,6 +139,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       onJumpToSegment(project.segments[currentIndex - 1]);
     } else {
       setCurrentTime(0);
+      if (videoRef.current) videoRef.current.currentTime = 0;
     }
   };
 
@@ -104,57 +151,59 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   };
 
   return (
-    <div className="flex flex-col bg-zinc-900/90 rounded-2xl border border-zinc-800 p-3.5 shadow-xl">
-      {/* Video Viewport */}
-      <div className="relative w-full rounded-xl overflow-hidden bg-black group">
-        {project.isCustomUpload && project.videoUrl ? (
+    <div className="flex flex-col bg-zinc-900 rounded-2xl border border-zinc-800 p-3.5 shadow-2xl">
+      {/* Video Viewport - Pristine 1:1, NO Watermarks, NO artificial borders */}
+      <div className="relative w-full rounded-xl overflow-hidden bg-black flex items-center justify-center group aspect-video">
+        {project.videoUrl ? (
           <video
-            ref={videoRef}
+            ref={videoRef as any}
             src={project.videoUrl}
-            className="w-full aspect-video object-contain"
+            className="w-full h-full object-contain"
             muted={audioTrackMode === 'dubbed'}
             playsInline
+            onTimeUpdate={handleTimeUpdate}
+            onEnded={handleVideoEnded}
+            onClick={() => setIsPlaying(!isPlaying)}
           />
         ) : (
-          <ProceduralVideoCanvas
-            project={project}
-            currentTime={currentTime}
-            isPlaying={isPlaying}
-            activeSegment={activeSegment}
-            activeSpeaker={activeSpeaker}
-            subtitlesMode={subtitlesMode}
-            isMuted={false}
-            onCanvasReady={onCanvasReady}
-          />
+          <div className="w-full h-full flex flex-col items-center justify-center text-zinc-500 gap-2">
+            <p className="text-xs">No video loaded</p>
+          </div>
         )}
 
-        {/* Top Overlay: Title & Active Tone Badge */}
-        <div className="absolute top-3 left-3 right-3 flex items-center justify-between pointer-events-none">
-          <div className="flex items-center gap-2 bg-zinc-950/80 backdrop-blur-md px-3 py-1.5 rounded-lg border border-zinc-800 shadow">
-            <span className="text-white font-semibold text-xs">
-              {project.title}
-            </span>
-            <span className="text-zinc-600 text-xs">•</span>
-            <span className="text-zinc-400 text-xs">
-              Sanskrit Audio Dub
-            </span>
-          </div>
-
-          {activeSegment && (
-            <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg backdrop-blur-md text-xs font-medium border shadow ${
-              RASAS[activeSegment.rasa]?.badgeBg || 'bg-zinc-900/80 text-zinc-300 border-zinc-800'
-            }`}>
-              <Sparkles className="w-3 h-3" />
-              <span>Tone: {RASAS[activeSegment.rasa]?.label || 'Neutral'}</span>
+        {/* Clean Standard Bottom Subtitles Overlay (Occludes original burned-in captions, NO badges, NO watermarks) */}
+        {activeSegment && subtitlesMode !== 'off' && (
+          <div className="absolute bottom-4 inset-x-3 flex flex-col items-center pointer-events-none text-center select-none z-20">
+            <div className="bg-black/95 backdrop-blur-md px-6 py-2.5 rounded-xl max-w-[92%] border border-white/15 shadow-2xl transition-all">
+              {subtitlesMode === 'dual' && (
+                <>
+                  <p className="text-white font-bold text-sm md:text-base font-sanskrit drop-shadow">
+                    {activeSegment.sanskritDevanagari}
+                  </p>
+                  <p className="text-zinc-300 text-xs italic font-sans mt-0.5 drop-shadow">
+                    {activeSegment.sanskritIAST}
+                  </p>
+                </>
+              )}
+              {subtitlesMode === 'devanagari' && (
+                <p className="text-white font-bold text-base md:text-lg font-sanskrit drop-shadow">
+                  {activeSegment.sanskritDevanagari}
+                </p>
+              )}
+              {subtitlesMode === 'iast' && (
+                <p className="text-zinc-100 font-medium text-xs md:text-sm italic font-sans drop-shadow">
+                  {activeSegment.sanskritIAST}
+                </p>
+              )}
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
-        {/* Center Play Overlay Button when paused */}
+        {/* Center Play Button Overlay when paused */}
         {!isPlaying && (
           <button
             onClick={() => setIsPlaying(true)}
-            className="absolute inset-0 m-auto w-14 h-14 rounded-full bg-indigo-600/90 hover:bg-indigo-500 text-white flex items-center justify-center shadow-xl hover:scale-105 active:scale-95 transition-all z-10"
+            className="absolute inset-0 m-auto w-14 h-14 rounded-full bg-indigo-600/90 hover:bg-indigo-500 text-white flex items-center justify-center shadow-2xl hover:scale-105 active:scale-95 transition-all z-20"
             title="Play Video"
           >
             <Play className="w-6 h-6 fill-white ml-0.5" />
@@ -162,19 +211,20 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         )}
       </div>
 
-      {/* Synchronized Multi-Track Timeline */}
+      {/* Multi-Track Audio Timeline Bar */}
       <div className="mt-3 px-1">
         <div
           ref={timelineRef}
           onClick={handleTimelineClick}
-          className="relative w-full h-8 bg-zinc-950 rounded-lg cursor-pointer border border-zinc-800 overflow-hidden flex items-center group"
+          className="relative w-full h-9 bg-zinc-950 rounded-lg cursor-pointer border border-zinc-800 overflow-hidden flex items-center group shadow-inner"
           title="Click to seek"
         >
           {/* Segments color bands */}
           {project.segments.map(seg => {
-            const leftPct = (seg.startTime / project.duration) * 100;
-            const widthPct = ((seg.endTime - seg.startTime) / project.duration) * 100;
-            const speaker = project.speakers.find(s => s.id === seg.speakerId);
+            const duration = Math.max(1, project.duration);
+            const leftPct = (seg.startTime / duration) * 100;
+            const widthPct = ((seg.endTime - seg.startTime) / duration) * 100;
+            const speaker = project.speakers.find(s => s.id === seg.speakerId) || project.speakers[0];
             const isActive = activeSegment?.id === seg.id;
 
             return (
@@ -183,12 +233,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 className={`absolute top-1 bottom-1 rounded transition-all flex items-center px-1.5 overflow-hidden border ${
                   isActive
                     ? 'ring-2 ring-indigo-400 z-10 opacity-100 shadow-md'
-                    : 'opacity-75 hover:opacity-100'
+                    : 'opacity-80 hover:opacity-100'
                 }`}
                 style={{
                   left: `${leftPct}%`,
                   width: `${widthPct}%`,
-                  backgroundColor: `${speaker?.color || '#6366f1'}33`,
+                  backgroundColor: `${speaker?.color || '#6366f1'}35`,
                   borderColor: speaker?.color || '#6366f1',
                 }}
               >
@@ -203,7 +253,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           <div
             className="absolute top-0 bottom-0 w-0.5 bg-indigo-400 z-20 shadow-[0_0_8px_#818cf8] pointer-events-none transition-[left] duration-75"
             style={{
-              left: `${(currentTime / project.duration) * 100}%`,
+              left: `${(currentTime / Math.max(1, project.duration)) * 100}%`,
             }}
           >
             <div className="w-2.5 h-2.5 rounded-full bg-indigo-400 -translate-x-[4px] -translate-y-0.5 shadow" />
@@ -246,6 +296,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           <button
             onClick={() => {
               setCurrentTime(0);
+              if (videoRef.current) videoRef.current.currentTime = 0;
               setIsPlaying(true);
             }}
             className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors"
@@ -275,12 +326,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               }`}
             >
               <Subtitles className="w-3.5 h-3.5" />
-              <span className="capitalize">{subtitlesMode}</span>
+              <span className="capitalize">{subtitlesMode === 'off' ? 'Subtitles Off' : subtitlesMode}</span>
             </button>
 
             {showSubtitlesMenu && (
-              <div className="absolute bottom-full right-0 mb-2 w-44 bg-zinc-900 border border-zinc-700 rounded-xl p-1 shadow-2xl z-30 flex flex-col gap-0.5">
-                {(['dual', 'devanagari', 'iast', 'off'] as const).map(mode => (
+              <div className="absolute bottom-full right-0 mb-2 w-48 bg-zinc-900 border border-zinc-700 rounded-xl p-1 shadow-2xl z-30 flex flex-col gap-0.5">
+                {(['off', 'dual', 'devanagari', 'iast'] as const).map(mode => (
                   <button
                     key={mode}
                     onClick={() => {
@@ -293,7 +344,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                         : 'text-zinc-300 hover:bg-zinc-800'
                     }`}
                   >
-                    {mode === 'dual' ? 'Dual (Sanskrit + Roman)' : mode === 'devanagari' ? 'Sanskrit (Devanagari)' : mode === 'iast' ? 'Roman Phonetic (IAST)' : 'Subtitles Off'}
+                    {mode === 'off' ? 'Subtitles Off (Clean Video)' : mode === 'dual' ? 'Dual (Sanskrit + Roman)' : mode === 'devanagari' ? 'Sanskrit (Devanagari)' : 'Roman Phonetic (IAST)'}
                   </button>
                 ))}
               </div>

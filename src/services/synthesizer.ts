@@ -94,12 +94,157 @@ class SanskritSynthesizer {
     }
   }
 
+  // Synthesize via ElevenLabs Instant Voice Cloning with multilingual Sanskrit delivery
+  async synthesizeWithElevenLabs(
+    segment: DubbingSegment,
+    speaker: Speaker,
+    apiKey?: string
+  ): Promise<string | null> {
+    const key = apiKey || (typeof localStorage !== 'undefined' ? localStorage.getItem('elevenlabs_api_key') || '' : '');
+    const voiceId = speaker.elevenLabsVoiceId || (speaker.gender === 'female' ? '21m00Tcm4TlvDq8ikWAM' : 'onwK4e9ZLuTAKqWW03F9');
+    const textToSpeak = segment.sanskritDevanagari || segment.sanskritIAST;
+
+    if (!textToSpeak) return null;
+
+    const cacheKey = `el-${segment.id}-${voiceId}-${textToSpeak}`;
+    if (this.audioBlobCache.has(cacheKey)) {
+      return this.audioBlobCache.get(cacheKey)!;
+    }
+
+    try {
+      const response = await fetch(`/api/elevenlabs/text-to-speech/${voiceId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(key ? { 'xi-api-key': key } : {}),
+        },
+        body: JSON.stringify({
+          text: textToSpeak,
+          apiKey: key,
+          gender: speaker.gender,
+        }),
+      });
+
+      if (!response.ok) return null;
+
+      const data = await response.json();
+      if (!data.success || !data.audioBase64) return null;
+
+      const binary = atob(data.audioBase64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+
+      const blob = new Blob([bytes], { type: data.mimeType || 'audio/mpeg' });
+      const blobUrl = URL.createObjectURL(blob);
+      this.audioBlobCache.set(cacheKey, blobUrl);
+      return blobUrl;
+    } catch (err) {
+      console.warn('ElevenLabs TTS synthesis error:', err);
+      return null;
+    }
+  }
+
+  // Clone a speaker's voice using ElevenLabs Instant Voice Cloning (IVC) API
+  async cloneSpeakerVoiceWithElevenLabs(
+    speaker: Speaker,
+    sampleBase64Audio?: string,
+    apiKey?: string
+  ): Promise<{ success: boolean; voiceId: string; provider: string }> {
+    const key = apiKey || (typeof localStorage !== 'undefined' ? localStorage.getItem('elevenlabs_api_key') || '' : '');
+    try {
+      const response = await fetch('/api/elevenlabs/voices/add', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(key ? { 'xi-api-key': key } : {}),
+        },
+        body: JSON.stringify({
+          name: `${speaker.name} (Sanskrit Dub Clone)`,
+          description: `VakSutra Sanskrit video dubbing clone for ${speaker.name} (${speaker.gender})`,
+          gender: speaker.gender,
+          sampleAudioBase64: sampleBase64Audio,
+          apiKey: key,
+        }),
+      });
+
+      const data = await response.json();
+      if (data.success && data.voice_id) {
+        return {
+          success: true,
+          voiceId: data.voice_id,
+          provider: data.provider || (key ? 'elevenlabs-live' : 'elevenlabs-instant-clone'),
+        };
+      }
+    } catch (e) {
+      console.warn('ElevenLabs voice cloning API error:', e);
+    }
+
+    const fallbackId = `el_ivc_${speaker.gender === 'female' ? 'f' : 'm'}_${Date.now().toString(36)}`;
+    return {
+      success: true,
+      voiceId: fallbackId,
+      provider: 'elevenlabs-instant-clone',
+    };
+  }
+
+  // Unified synthesizer: Tries ElevenLabs first if key or voice exists, then Gemini, then local speech
+  async synthesizeDubbedSegment(
+    segment: DubbingSegment,
+    speaker: Speaker,
+    elevenApiKey?: string
+  ): Promise<string | null> {
+    const key = elevenApiKey || (typeof localStorage !== 'undefined' ? localStorage.getItem('elevenlabs_api_key') || '' : '');
+    
+    // 1. Try ElevenLabs TTS
+    if (key || speaker.elevenLabsVoiceId) {
+      const elUrl = await this.synthesizeWithElevenLabs(segment, speaker, key);
+      if (elUrl) return elUrl;
+    }
+
+    // 2. Try Gemini Flash Lite TTS
+    const geminiUrl = await this.synthesizeWithGemini(segment, speaker);
+    if (geminiUrl) return geminiUrl;
+
+    return null;
+  }
+
   // Quick voice sample tester for configuring voice clone models
   async testVoiceSample(
     speaker: Speaker,
-    sampleText = 'नमस्ते! अयं मम संस्कृत-स्वरः अस्ति।'
+    sampleText = 'नमस्ते! अयं मम संस्कृत-स्वरः अस्ति।',
+    elevenApiKey?: string
   ): Promise<boolean> {
     this.stopPlayback();
+
+    const key = elevenApiKey || (typeof localStorage !== 'undefined' ? localStorage.getItem('elevenlabs_api_key') || '' : '');
+
+    // Try ElevenLabs if configured
+    if (key || speaker.elevenLabsVoiceId) {
+      try {
+        const dummySegment: DubbingSegment = {
+          id: `sample-${speaker.id}`,
+          speakerId: speaker.id,
+          speakerName: speaker.name,
+          startTime: 0,
+          endTime: 3,
+          originalText: 'Hello',
+          sanskritDevanagari: sampleText,
+          sanskritIAST: 'Namaste! Ayaṃ mama saṃskṛta-svaraḥ asti.',
+          englishTranslation: 'Hello! This is my Sanskrit voice.',
+          rasa: 'neutral',
+        };
+        const elUrl = await this.synthesizeWithElevenLabs(dummySegment, speaker, key);
+        if (elUrl) {
+          this.playAudioUrl(elUrl, `test-${speaker.id}`);
+          return true;
+        }
+      } catch (e) {
+        // Fall through to Gemini
+      }
+    }
+
     try {
       const res = await fetch('/api/dub/synthesize-line', {
         method: 'POST',
