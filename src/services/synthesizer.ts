@@ -356,11 +356,11 @@ class SanskritSynthesizer {
       }
 
       // Voice pitch & speed modification:
-      // Woman: strictly high questioning pitch (~300 Hz, 1.45x)
-      // Man: strictly resonant baritone (~120 Hz, 0.88x)
-      let pitchMod = isFemale ? 1.45 : 0.88;
+      // Woman: clear articulate cadence (~240 Hz, 1.1x)
+      // Man: resonant baritone (~120 Hz, 0.96x)
+      let pitchMod = isFemale ? 1.12 : 0.96;
       pitchMod *= (speaker.pitchMultiplier || 1.0);
-      let rateMod = speaker.speedMultiplier || 1.0;
+      let rateMod = 1.0 * (speaker.speedMultiplier || 1.0);
 
       switch (segment.rasa) {
         case 'intense':
@@ -428,15 +428,17 @@ class SanskritSynthesizer {
     (audio as any).mozPreservesPitch = true;
     (audio as any).webkitPreservesPitch = true;
 
-    if (speedMultiplier && speedMultiplier >= 0.85 && speedMultiplier <= 1.2) {
+    if (speedMultiplier && speedMultiplier >= 0.9 && speedMultiplier <= 1.1) {
       audio.playbackRate = speedMultiplier;
+    } else {
+      audio.playbackRate = 1.0;
     }
 
     if (targetDuration && targetDuration > 0) {
       audio.onloadedmetadata = () => {
         if (audio.duration && audio.duration > 0) {
-          // Keep strictly within natural conversational range (0.92x to 1.12x)
-          const syncSpeed = Math.max(0.92, Math.min(1.12, audio.duration / targetDuration));
+          // Keep strictly within natural conversational range (0.98x to 1.02x) - no rushed chipmunk effect
+          const syncSpeed = Math.max(0.98, Math.min(1.02, audio.duration / targetDuration));
           audio.playbackRate = syncSpeed * (speedMultiplier || 1.0);
         }
       };

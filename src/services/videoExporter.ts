@@ -91,7 +91,7 @@ export class VideoExporterService {
         if (!audioBuffer) {
           audioBuffer = this.generateSyntheticSegmentBuffer(
             offlineCtx,
-            Math.max(1, seg.endTime - seg.startTime)
+            Math.max(0.5, seg.endTime - seg.startTime)
           );
         }
 
@@ -99,13 +99,14 @@ export class VideoExporterService {
           const source = offlineCtx.createBufferSource();
           source.buffer = audioBuffer;
 
-          // Lip-sync & timeline duration matching:
-          // Strictly keep speed in natural 0.92x to 1.12x range to avoid chipmunk effect
+          // Natural conversational Sanskrit pacing (strictly 1.0x speed, no rushed chipmunk effect)
           const targetDuration = Math.max(0.4, seg.endTime - seg.startTime);
           const rawDuration = audioBuffer.duration;
           if (rawDuration > 0 && targetDuration > 0) {
-            const syncRate = Math.max(0.92, Math.min(1.12, rawDuration / targetDuration));
+            const syncRate = Math.max(0.98, Math.min(1.02, rawDuration / targetDuration));
             source.playbackRate.value = syncRate;
+          } else {
+            source.playbackRate.value = 1.0;
           }
 
           source.connect(compressor);
@@ -546,39 +547,20 @@ export class VideoExporterService {
   }
 
   /**
-   * Generates a synthetic harmonic speech buffer with accurate pitch matching (~300 Hz female, ~120 Hz male)
+   * Generates a clean silent audio buffer for segments without audio
+   * Strictly avoids generating robotic oscillator tones, beeps, or heartbeats!
    */
   private generateSyntheticSegmentBuffer(
     ctx: BaseAudioContext,
     durationSec: number,
-    isFemale: boolean,
-    targetPitchHz?: number
+    _isFemale?: boolean,
+    _targetPitchHz?: number
   ): AudioBuffer {
-    const dur = Math.max(1.2, Math.min(8, durationSec));
+    const dur = Math.max(0.1, Math.min(8, durationSec));
     const sampleRate = ctx.sampleRate;
     const length = Math.floor(dur * sampleRate);
-    const buffer = ctx.createBuffer(2, length, sampleRate);
-    const left = buffer.getChannelData(0);
-    const right = buffer.getChannelData(1);
-
-    const f0 = targetPitchHz || (isFemale ? 300 : 120);
-    for (let i = 0; i < length; i++) {
-      const t = i / sampleRate;
-      const syllable = Math.sin(t * 7) * 0.5 + 0.5;
-      const decay = Math.exp(-t / (dur * 0.8));
-      const amp = syllable * decay * 0.22;
-
-      const val = (
-        Math.sin(2 * Math.PI * f0 * t) * 0.6 +
-        Math.sin(2 * Math.PI * f0 * 2 * t) * 0.3 +
-        Math.sin(2 * Math.PI * f0 * 4 * t) * 0.15
-      ) * amp;
-
-      left[i] = val;
-      right[i] = val;
-    }
-
-    return buffer;
+    // Create pristine silent audio buffer - never play repetitive oscillator hums
+    return ctx.createBuffer(2, length, sampleRate);
   }
 
   /**

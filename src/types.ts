@@ -68,6 +68,7 @@ export interface VideoProject {
   category: 'documentary' | 'science' | 'modern-tech' | 'storytelling';
   duration: number; // in seconds
   videoUrl?: string;
+  originalVideoUrl?: string;
   canvasTheme?: 'cosmic' | 'nature' | 'tech';
   segments: DubbingSegment[];
   speakers: Speaker[];
