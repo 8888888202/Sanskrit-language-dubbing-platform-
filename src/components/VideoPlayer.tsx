@@ -171,31 +171,37 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           </div>
         )}
 
-        {/* Clean Standard Bottom Subtitles Overlay (Occludes original burned-in captions, NO badges, NO watermarks) */}
-        {activeSegment && subtitlesMode !== 'off' && (
-          <div className="absolute bottom-4 inset-x-3 flex flex-col items-center pointer-events-none text-center select-none z-20">
-            <div className="bg-black/95 backdrop-blur-md px-6 py-2.5 rounded-xl max-w-[92%] border border-white/15 shadow-2xl transition-all">
-              {subtitlesMode === 'dual' && (
-                <>
-                  <p className="text-white font-bold text-sm md:text-base font-sanskrit drop-shadow">
+        {/* Clean Standard Bottom Subtitles Overlay: Completely blocks out original burned-in Hindi captions */}
+        {subtitlesMode !== 'off' && (
+          <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black via-zinc-950/98 to-zinc-950/80 px-4 py-3 flex flex-col items-center justify-center text-center select-none z-20 min-h-[64px] border-t border-white/10 pointer-events-none transition-all">
+            {activeSegment ? (
+              <div className="max-w-[94%]">
+                {subtitlesMode === 'dual' && (
+                  <>
+                    <p className="text-white font-bold text-sm sm:text-base font-sanskrit tracking-wide drop-shadow">
+                      {activeSegment.sanskritDevanagari}
+                    </p>
+                    <p className="text-zinc-300 text-[11px] sm:text-xs italic font-sans mt-0.5 drop-shadow">
+                      {activeSegment.sanskritIAST}
+                    </p>
+                  </>
+                )}
+                {subtitlesMode === 'devanagari' && (
+                  <p className="text-white font-bold text-base sm:text-lg font-sanskrit tracking-wide drop-shadow">
                     {activeSegment.sanskritDevanagari}
                   </p>
-                  <p className="text-zinc-300 text-xs italic font-sans mt-0.5 drop-shadow">
+                )}
+                {subtitlesMode === 'iast' && (
+                  <p className="text-zinc-100 font-medium text-xs sm:text-sm italic font-sans drop-shadow">
                     {activeSegment.sanskritIAST}
                   </p>
-                </>
-              )}
-              {subtitlesMode === 'devanagari' && (
-                <p className="text-white font-bold text-base md:text-lg font-sanskrit drop-shadow">
-                  {activeSegment.sanskritDevanagari}
-                </p>
-              )}
-              {subtitlesMode === 'iast' && (
-                <p className="text-zinc-100 font-medium text-xs md:text-sm italic font-sans drop-shadow">
-                  {activeSegment.sanskritIAST}
-                </p>
-              )}
-            </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-[11px] text-zinc-500 font-medium tracking-wide">
+                संस्कृत-ध्वन्यङ्कनम् (Sanskrit Dubbing Active)
+              </p>
+            )}
           </div>
         )}
 

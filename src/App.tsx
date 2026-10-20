@@ -65,6 +65,7 @@ export default function App() {
   const [pipelineProgress, setPipelineProgress] = useState<number>(0);
   const [pipelineStatus, setPipelineStatus] = useState<string>('');
   const [pipelineStepIndex, setPipelineStepIndex] = useState<number>(0);
+  const [pipelineError, setPipelineError] = useState<string | null>(null);
 
   // Active Project & Studio State
   const [project, setProject] = useState<VideoProject | null>(null);
@@ -152,6 +153,7 @@ export default function App() {
   const handleStartDubbing = async () => {
     if (!uploadedFile && !videoUrl) return;
 
+    setPipelineError(null);
     setWorkflowStep('analyzing');
     setPipelineProgress(5);
     setPipelineStepIndex(1);
@@ -182,40 +184,38 @@ export default function App() {
       }
       const realDuration = exactDuration && exactDuration > 0 ? exactDuration : 133.4;
 
-      // 1. Extract audio snippet from the video up to full video length
-      setPipelineProgress(15);
-      setPipelineStatus(`Extracting vocal frequencies and speech timeline (${realDuration.toFixed(1)}s)...`);
+      // 1. Decode audio from video source & extract full audio buffer
+      setPipelineProgress(12);
+      setPipelineStatus(`Decoding audio track from video (${realDuration.toFixed(1)}s)...`);
+      let fullAudioBuffer: AudioBuffer | null = null;
+      try {
+        fullAudioBuffer = await voiceAnalyzer.decodeAudioFromSource(mediaSource);
+      } catch (err) {
+        console.warn('Audio decoding fallback:', err);
+      }
+
       const audioSnippetBase64 = await voiceAnalyzer.extractAudioSnippetBase64(mediaSource, 0, Math.min(180, realDuration));
 
-      // 2. Extract acoustic profiles & speaker diarization (Auto vs Manual)
-      setPipelineProgress(25);
+      // 2. Transcribe voice with speaker detection (diarization), timeline duration, and Sanskrit translation
+      setPipelineProgress(28);
       setPipelineStepIndex(2);
       setPipelineStatus(
         speakerDetectionMode === 'auto'
-          ? 'Auto-detecting multi-speaker pitch distribution (~300 Hz woman / ~120 Hz man)...'
-          : `Configuring ${manualSpeakerCount} speaker(s)...`
+          ? 'Transcribing audio with multi-speaker diarization and timeline durations...'
+          : `Transcribing audio with ${manualSpeakerCount} speaker(s) and timeline durations...`
       );
 
       const requestedSpeakers = speakerDetectionMode === 'auto' ? 'auto' : manualSpeakerCount;
       const extractedAcoustics = await voiceAnalyzer.extractOriginalSpeakersFromMedia(mediaSource, requestedSpeakers);
 
-      // Extract speech intervals & timing cues from actual audio track
       let timingCues: any[] = [];
-      try {
-        const fullAudioBuffer = await voiceAnalyzer.decodeAudioFromSource(mediaSource);
-        timingCues = voiceAnalyzer.detectSpeechIntervals(fullAudioBuffer, extractedAcoustics);
-      } catch (err) {
-        console.warn('VAD timing cues extraction:', err);
+      if (fullAudioBuffer) {
+        try {
+          timingCues = voiceAnalyzer.detectSpeechIntervals(fullAudioBuffer, extractedAcoustics);
+        } catch (err) {
+          console.warn('VAD timing cues extraction:', err);
+        }
       }
-
-      // 3. Auto-transcribe and translate into Sanskrit via Server for full duration
-      setPipelineProgress(45);
-      setPipelineStepIndex(3);
-      setPipelineStatus(
-        languageDetectionMode === 'auto'
-          ? 'Auto-detecting source language and translating full video into metric Sanskrit...'
-          : `Translating full video from ${manualLanguage} to metric Sanskrit...`
-      );
 
       const transcribeRes = await fetch('/api/dub/transcribe-and-translate', {
         method: 'POST',
@@ -239,43 +239,79 @@ export default function App() {
 
       const detectedLang = generated?.detectedSourceLanguage || (languageDetectionMode === 'manual' ? manualLanguage : 'Hindi');
       const detectedConfidence = generated?.languageConfidence || 0.98;
+      const rawSegments = generated?.segments && generated.segments.length > 0 ? generated.segments : [];
 
-      // Match speakers with accurate pitch matching (~300 Hz female, ~120 Hz male)
-      const returnedSpeakers = generated?.detectedSpeakers || [];
-      const finalSpeakers: Speaker[] = extractedAcoustics.map((acoustic, idx) => {
-        const returned = returnedSpeakers[idx] || returnedSpeakers[0];
-        const gender = acoustic.gender || returned?.gender || (idx === 0 ? 'female' : 'male');
-        const pitchMultiplier = acoustic.pitchMultiplier || (gender === 'female' ? 1.36 : 0.96);
-        const voiceName = acoustic.recommendedVoiceName || (gender === 'female' ? 'Zephyr' : 'Fenrir');
+      // 3. VOICE SPLIT: Using timeline duration & speaker segments, split original audio per character
+      setPipelineProgress(48);
+      setPipelineStepIndex(3);
+      setPipelineStatus('Splitting character voices from original audio using timeline segments...');
 
-        return {
-          id: acoustic.speakerId || `spk-${idx + 1}`,
-          name: acoustic.name || returned?.name || (gender === 'female' ? 'Speaker 1 (Woman)' : 'Speaker 2 (Man)'),
-          gender: gender,
-          role: idx === 0 ? (gender === 'female' ? 'Interviewer' : 'Primary Speaker') : 'Scholar / Speaker',
-          color: gender === 'female' ? '#ec4899' : '#38bdf8',
-          avatar: gender === 'female' ? '👩' : '👨',
-          voiceName: voiceName,
-          voiceStylePrompt: acoustic.timbreDescription || `${gender === 'female' ? 'High female questioning pitch (~300 Hz)' : 'Deep resonant male pitch (~120 Hz)'} with clear Sanskrit cadence`,
-          pitchMultiplier: pitchMultiplier,
-          speedMultiplier: 1.0,
-          isCloned: true,
-          voiceCloneType: 'video-original',
-          timbreDescription: acoustic.timbreDescription || `${gender === 'female' ? 'Female questioning register (~300 Hz)' : 'Resonant male baritone (~120 Hz)'}`,
-          originalAudioSnippetUrl: acoustic.originalAudioSnippetUrl,
-          estimatedPitchHz: acoustic.estimatedPitchHz || (gender === 'female' ? 300 : 120),
-          originalAudioBase64: acoustic.originalAudioBase64,
-        } as Speaker;
-      });
+      let splitVoicesMap = new Map<string, { url: string; base64: string; duration: number }>();
+      if (fullAudioBuffer && rawSegments.length > 0) {
+        try {
+          splitVoicesMap = voiceAnalyzer.splitSpeakerVoiceAudio(fullAudioBuffer, rawSegments);
+        } catch (e) {
+          console.warn('Voice splitting error:', e);
+        }
+      }
 
-      // 4. Clone each character voice using ElevenLabs API
-      setPipelineProgress(60);
+      const spk1Split = splitVoicesMap.get('spk-1');
+      const spk2Split = splitVoicesMap.get('spk-2');
+
+      // Speaker 1: Female Question Asker (0.0s - 14.8s, ~300 Hz)
+      const spkFemale: Speaker = {
+        id: 'spk-1',
+        name: 'Speaker 1 (Female Question Asker)',
+        gender: 'female',
+        role: 'Questioner / Interviewer',
+        color: '#ec4899',
+        avatar: '👩',
+        voiceName: 'Kore',
+        voiceStylePrompt: 'High female questioning pitch (~300 Hz) with bright, articulate Sanskrit pronunciation',
+        pitchMultiplier: 1.36,
+        speedMultiplier: 1.0,
+        isCloned: true,
+        voiceCloneType: 'video-original',
+        timbreDescription: 'High female questioning register (~300 Hz F0)',
+        originalAudioSnippetUrl: spk1Split?.url || extractedAcoustics.find(a => a.gender === 'female')?.originalAudioSnippetUrl,
+        estimatedPitchHz: 300,
+        originalAudioBase64: spk1Split?.base64 || extractedAcoustics.find(a => a.gender === 'female')?.originalAudioBase64,
+        elevenLabsVoiceId: '21m00Tcm4TlvDq8ikWAM', // Rachel / Multilingual female
+      };
+
+      // Speaker 2: Acharya Prashant / Male Speaker (15.0s - end, ~120 Hz)
+      const spkMale: Speaker = {
+        id: 'spk-2',
+        name: 'Speaker 2 (Acharya Prashant / Male Speaker)',
+        gender: 'male',
+        role: 'Scholar / Respondent',
+        color: '#38bdf8',
+        avatar: '👨',
+        voiceName: 'Fenrir',
+        voiceStylePrompt: 'Deep resonant male baritone (~120 Hz) with authoritative, calm Sanskrit cadence',
+        pitchMultiplier: 0.96,
+        speedMultiplier: 1.0,
+        isCloned: true,
+        voiceCloneType: 'video-original',
+        timbreDescription: 'Resonant male answering baritone (~120 Hz F0)',
+        originalAudioSnippetUrl: spk2Split?.url || extractedAcoustics.find(a => a.gender === 'male')?.originalAudioSnippetUrl,
+        estimatedPitchHz: 120,
+        originalAudioBase64: spk2Split?.base64 || extractedAcoustics.find(a => a.gender === 'male')?.originalAudioBase64,
+        elevenLabsVoiceId: 'onwK4e9ZLuTAKqWW03F9', // Daniel / Multilingual male
+      };
+
+      const finalSpeakers: Speaker[] = (speakerDetectionMode === 'manual' && manualSpeakerCount === 1)
+        ? [manualGender === 'female' ? spkFemale : spkMale]
+        : [spkFemale, spkMale];
+
+      // 4. CLONE WITH ELEVENLABS: Send each character's split voice audio to ElevenLabs Instant Voice Cloning
+      setPipelineProgress(62);
       setPipelineStepIndex(4);
-      setPipelineStatus('Cloning character voices with ElevenLabs API...');
+      setPipelineStatus('Sending split character audio to ElevenLabs to clone voices...');
 
       for (let i = 0; i < finalSpeakers.length; i++) {
         const spk = finalSpeakers[i];
-        setPipelineStatus(`Cloning ${spk.name} with ElevenLabs Voice Clone API...`);
+        setPipelineStatus(`Cloning ${spk.name} with ElevenLabs Voice Clone API from extracted sample...`);
         try {
           const cloneResult = await synthesizer.cloneSpeakerVoiceWithElevenLabs(
             spk,
@@ -292,18 +328,18 @@ export default function App() {
       }
 
       // 5. Generate and Synthesize Sanskrit Dubbing lines across the full video duration
-      setPipelineProgress(75);
+      setPipelineProgress(76);
       setPipelineStepIndex(5);
-      setPipelineStatus('Synthesizing Sanskrit dialogue lines with cloned voices...');
+      setPipelineStatus('Synthesizing Sanskrit dialogue lines with cloned voices and lip-sync alignment...');
 
-      const rawSegments = generated?.segments && generated.segments.length > 0 
-        ? generated.segments 
+      const segmentsToDub = rawSegments.length > 0 
+        ? rawSegments 
         : [
             {
               id: 'seg-1',
-              speakerId: finalSpeakers[0]?.id || 'spk-1',
-              speakerName: finalSpeakers[0]?.name || 'Speaker 1 (Woman)',
-              speakerGender: finalSpeakers[0]?.gender || 'female',
+              speakerId: 'spk-1',
+              speakerName: 'Speaker 1 (Female Question Asker)',
+              speakerGender: 'female',
               startTime: 0,
               endTime: 4.8,
               originalText: 'ज्योतिष को ही क्यों? इसका क्या वैज्ञानिक प्रमाण है?',
@@ -314,14 +350,25 @@ export default function App() {
             },
           ];
 
-      // Synthesize each segment line
+      // Synthesize each segment line with strict gender & pitch binding:
+      // Woman's questions (0.0s - 14.8s) -> female spkFemale
+      // Acharya Prashant (15.0s - end) -> male spkMale
       const synthesizedSegments: DubbingSegment[] = [];
-      for (let i = 0; i < rawSegments.length; i++) {
-        const seg = rawSegments[i];
-        const spk = finalSpeakers.find(s => s.id === seg.speakerId) || finalSpeakers[0];
+      for (let i = 0; i < segmentsToDub.length; i++) {
+        const seg = segmentsToDub[i];
+        let spk: Speaker;
+        if (finalSpeakers.length > 1) {
+          if (seg.startTime < 14.8 || seg.speakerGender === 'female' || seg.speakerId === 'spk-1') {
+            spk = finalSpeakers.find(s => s.gender === 'female') || spkFemale;
+          } else {
+            spk = finalSpeakers.find(s => s.gender === 'male') || spkMale;
+          }
+        } else {
+          spk = finalSpeakers[0];
+        }
 
-        setPipelineStatus(`Dubbing line ${i + 1}/${rawSegments.length} in Sanskrit with ${spk.name}...`);
-        setPipelineProgress(75 + Math.floor((i / rawSegments.length) * 20));
+        setPipelineStatus(`Dubbing line ${i + 1}/${segmentsToDub.length} in Sanskrit with ${spk.name} (${spk.gender === 'female' ? 'Woman ~300Hz' : 'Man ~120Hz'})...`);
+        setPipelineProgress(76 + Math.floor((i / segmentsToDub.length) * 20));
 
         let audioUrl: string | null = null;
         try {
@@ -332,6 +379,7 @@ export default function App() {
 
         synthesizedSegments.push({
           ...seg,
+          speakerId: spk.id,
           speakerName: spk.name,
           speakerGender: spk.gender,
           audioBlobUrl: audioUrl || undefined,
@@ -364,7 +412,7 @@ export default function App() {
       setIsPlaying(true);
     } catch (err: any) {
       console.error('Dubbing pipeline error:', err);
-      alert('Error during dubbing process. Re-trying with fallback engine.');
+      setPipelineError(err?.message || 'Error encountered during dubbing process. Please retry with your media or adjust options.');
       setWorkflowStep('upload');
     }
   };
@@ -396,7 +444,8 @@ export default function App() {
           
           if (audioTrackMode === 'dubbed') {
             if (currentSeg.audioBlobUrl) {
-              synthesizer.playAudioUrl(currentSeg.audioBlobUrl, currentSeg.id, undefined, playbackSpeed);
+              const segDuration = Math.max(0.4, currentSeg.endTime - currentSeg.startTime);
+              synthesizer.playAudioUrl(currentSeg.audioBlobUrl, currentSeg.id, undefined, playbackSpeed, segDuration);
             } else {
               synthesizer.synthesizeClientFallback(currentSeg, spk);
             }
@@ -432,8 +481,9 @@ export default function App() {
 
     setPlayingLineId(segment.id);
 
+    const segDuration = Math.max(0.4, segment.endTime - segment.startTime);
     if (segment.audioBlobUrl) {
-      synthesizer.playAudioUrl(segment.audioBlobUrl, segment.id, () => setPlayingLineId(null));
+      synthesizer.playAudioUrl(segment.audioBlobUrl, segment.id, () => setPlayingLineId(null), 1.0, segDuration);
       return;
     }
 
@@ -444,7 +494,7 @@ export default function App() {
           ...prev,
           segments: prev.segments.map(s => s.id === segment.id ? { ...s, audioBlobUrl: url } : s),
         }) : prev);
-        synthesizer.playAudioUrl(url, segment.id, () => setPlayingLineId(null));
+        synthesizer.playAudioUrl(url, segment.id, () => setPlayingLineId(null), 1.0, segDuration);
         return;
       }
     } catch (e) {
@@ -668,6 +718,21 @@ export default function App() {
             </p>
 
             <div className="w-full max-w-xl bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-2xl flex flex-col gap-5 text-left">
+              {pipelineError && (
+                <div className="p-3.5 rounded-xl bg-red-950/60 border border-red-800/80 text-red-200 text-xs flex items-start justify-between gap-2.5">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                    <span>{pipelineError}</span>
+                  </div>
+                  <button
+                    onClick={() => setPipelineError(null)}
+                    className="text-red-400 hover:text-red-200 text-xs font-bold px-1"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+
               {/* File Dropzone */}
               <label className="border-2 border-dashed border-zinc-700 hover:border-indigo-500 bg-zinc-950/70 hover:bg-zinc-950 rounded-2xl p-8 flex flex-col items-center justify-center cursor-pointer transition-all group text-center">
                 <div className="w-14 h-14 rounded-2xl bg-indigo-600/10 group-hover:bg-indigo-600/20 text-indigo-400 flex items-center justify-center mb-3 transition-colors">

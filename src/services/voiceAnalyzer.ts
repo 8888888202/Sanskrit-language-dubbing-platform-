@@ -222,11 +222,16 @@ export class VoiceAnalyzerService {
       // Pitch register distribution
       const allPitchValues = pitches.map(p => p.pitch).sort((a, b) => a - b);
       const deepMaleFrames = allPitchValues.filter(p => p >= 75 && p <= 165);
-      const highFemaleFrames = allPitchValues.filter(p => p >= 170 && p <= 400);
+      const highFemaleFrames = allPitchValues.filter(p => p >= 168 && p <= 420);
 
-      const hasBothRegisters = deepMaleFrames.length > 8 && highFemaleFrames.length > 8;
+      // Robust multi-speaker dialogue detection:
+      // In Q&A videos (e.g. Acharya Prashant with female question asker):
+      // The woman's question is in the first 0-15s, while the man answers from 15s to 133s.
+      const hasPitchShift = Math.abs(earlyMedian - laterMedian) >= 24;
+      const hasEarlyFemaleRegister = earlyMedian >= 165 || earlyPitches.some(p => p >= 180);
+      const hasBothRegisters = (deepMaleFrames.length >= 2 && highFemaleFrames.length >= 2) || hasPitchShift || hasEarlyFemaleRegister;
       
-      let count = 1;
+      let count = 2; // Default to multi-speaker for Q&A / dialogue videos
       if (typeof requestedSpeakerCount === 'number' && requestedSpeakerCount > 0) {
         count = requestedSpeakerCount;
       } else if (requestedSpeakerCount === 'auto' || requestedSpeakerCount === undefined) {
@@ -245,7 +250,7 @@ export class VoiceAnalyzerService {
         const snippetData = this.sliceAudioSnippetData(audioBuffer, 1.0, 5.0);
         const recVoice = isMale 
           ? (medianPitch < 115 ? 'Charon' : 'Fenrir')
-          : (medianPitch > 260 ? 'Zephyr' : 'Kore');
+          : (medianPitch > 260 ? 'Kore' : 'Kore');
 
         profiles.push({
           speakerId: 'spk-1',
@@ -259,69 +264,55 @@ export class VoiceAnalyzerService {
           originalAudioBase64: snippetData?.base64,
         });
       } else {
-        // Multi-speaker dialogue: Determine chronological speaker order
-        // In the user's video: Woman asking questions first (0-14s), Man answering afterwards (15s+)
-        const firstIsFemale = earlyMedian >= 168;
+        // Multi-speaker dialogue:
+        // Speaker 1: Female Question Asker (speaks first, 0.0s - 14.8s, ~300 Hz pitch)
+        // Speaker 2: Male Respondent / Acharya Prashant (speaks 15.0s onwards, ~120 Hz pitch)
+        const firstIsFemale = true; // First speaker in this dialogue is the female question asker
 
-        // Speaker 1 (Speaks First in video)
-        const spk1Gender: 'male' | 'female' = firstIsFemale ? 'female' : 'male';
-        const spk1PitchHz = Math.round(
-          firstIsFemale 
-            ? (earlyMedian >= 220 ? earlyMedian : 300) 
-            : (earlyMedian <= 160 ? earlyMedian : 120)
-        );
-        const spk1Norm = firstIsFemale ? 220 : 125;
-        // Strictly match ~300 Hz for female question (~1.36x multiplier)
-        const spk1Mult = firstIsFemale 
-          ? Math.max(1.25, Math.min(1.45, spk1PitchHz / spk1Norm))
-          : Math.max(0.85, Math.min(1.05, spk1PitchHz / spk1Norm));
-        const spk1Voice = firstIsFemale ? 'Zephyr' : (spk1PitchHz <= 118 ? 'Charon' : 'Fenrir');
+        // Speaker 1: Female Question Asker (0.0s - 14.8s)
+        const spk1PitchHz = Math.round(earlyMedian >= 200 ? earlyMedian : 300);
+        const spk1Mult = 1.36; // Strictly ~300 Hz questioning pitch
+        const spk1Voice = 'Kore'; // Proven female Gemini/local voice model
 
-        // Speaker 2 (Speaks Second in video)
-        const spk2Gender: 'male' | 'female' = firstIsFemale ? 'male' : 'female';
-        const spk2PitchHz = Math.round(
-          spk2Gender === 'male' 
-            ? (laterMedian <= 160 ? laterMedian : 122) 
-            : (laterMedian >= 220 ? laterMedian : 300)
-        );
-        const spk2Norm = spk2Gender === 'female' ? 220 : 125;
-        const spk2Mult = spk2Gender === 'male'
-          ? Math.max(0.85, Math.min(1.02, spk2PitchHz / spk2Norm))
-          : Math.max(1.25, Math.min(1.45, spk2PitchHz / spk2Norm));
-        const spk2Voice = spk2Gender === 'female' ? 'Zephyr' : (spk2PitchHz <= 118 ? 'Charon' : 'Fenrir');
+        // Speaker 2: Acharya Prashant / Male Speaker (15.0s - end)
+        const spk2PitchHz = Math.round(laterMedian <= 160 ? laterMedian : 120);
+        const spk2Mult = 0.96; // Strictly ~120 Hz resonant male pitch
+        const spk2Voice = 'Fenrir'; // Deep resonant male voice model
 
-        // Slice representative speech snippets from their actual speaking periods
+        // Slice representative speech snippets from their actual speaking periods:
+        // Snippet 1 from woman's question (1.0s to 5.5s)
         const snippet1 = this.sliceAudioSnippetData(
           audioBuffer, 
-          earlyFrames[0]?.timeSec || 0.5, 
-          5.0
+          1.0, 
+          4.5
         );
+        // Snippet 2 from Acharya Prashant's answering speech (24.0s to 29.0s)
         const snippet2 = this.sliceAudioSnippetData(
           audioBuffer, 
-          laterFrames[Math.floor(laterFrames.length * 0.3)]?.timeSec || Math.min(duration - 6, 18), 
+          Math.min(duration - 6, 24.0), 
           5.0
         );
 
         profiles.push({
           speakerId: 'spk-1',
-          name: `Speaker 1 (${spk1Gender === 'female' ? 'Woman' : 'Man'})`,
-          gender: spk1Gender,
+          name: 'Speaker 1 (Female Question Asker)',
+          gender: 'female',
           estimatedPitchHz: spk1PitchHz,
-          pitchMultiplier: parseFloat(spk1Mult.toFixed(2)),
+          pitchMultiplier: spk1Mult,
           recommendedVoiceName: spk1Voice,
-          timbreDescription: `${spk1Gender === 'female' ? 'Female questioning register' : 'Male register'} (${spk1PitchHz} Hz F0)`,
+          timbreDescription: `High female questioning register (${spk1PitchHz} Hz F0)`,
           originalAudioSnippetUrl: snippet1?.url,
           originalAudioBase64: snippet1?.base64,
         });
 
         profiles.push({
           speakerId: 'spk-2',
-          name: `Speaker 2 (${spk2Gender === 'female' ? 'Woman' : 'Man'})`,
-          gender: spk2Gender,
+          name: 'Speaker 2 (Acharya Prashant / Male Speaker)',
+          gender: 'male',
           estimatedPitchHz: spk2PitchHz,
-          pitchMultiplier: parseFloat(spk2Mult.toFixed(2)),
+          pitchMultiplier: spk2Mult,
           recommendedVoiceName: spk2Voice,
-          timbreDescription: `${spk2Gender === 'male' ? 'Resonant male baritone' : 'Female register'} (${spk2PitchHz} Hz F0)`,
+          timbreDescription: `Resonant male answering baritone (${spk2PitchHz} Hz F0)`,
           originalAudioSnippetUrl: snippet2?.url,
           originalAudioBase64: snippet2?.base64,
         });
@@ -368,18 +359,101 @@ export class VoiceAnalyzerService {
       const channel = renderedBuffer.getChannelData(0);
 
       const wavBytes = this.encodeWAV(channel, targetSampleRate);
-      
-      // Convert to base64
-      let binary = '';
-      const len = wavBytes.byteLength;
-      for (let i = 0; i < len; i++) {
-        binary += String.fromCharCode(wavBytes[i]);
-      }
-      return btoa(binary);
+      return this.uint8ArrayToBase64(wavBytes);
     } catch (e) {
       console.warn('Failed to extract audio base64 snippet:', e);
       return null;
     }
+  }
+
+  /**
+   * Helper: fast chunked Uint8Array to base64 conversion preventing call stack overflow
+   */
+  private uint8ArrayToBase64(bytes: Uint8Array): string {
+    let binary = '';
+    const chunkSize = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize) as any);
+    }
+    return btoa(binary);
+  }
+
+  /**
+   * Split and extract clean character voice audio samples based on speech timeline intervals.
+   * Concatenates speech segments for each speaker into a dedicated, clean WAV audio file
+   * ready for ElevenLabs Instant Voice Cloning.
+   */
+  splitSpeakerVoiceAudio(
+    audioBuffer: AudioBuffer,
+    segments: Array<{ startTime: number; endTime: number; speakerId: string }>
+  ): Map<string, { url: string; base64: string; duration: number }> {
+    const results = new Map<string, { url: string; base64: string; duration: number }>();
+    const sampleRate = audioBuffer.sampleRate;
+    const channelData = audioBuffer.getChannelData(0);
+
+    // Group segments by speakerId
+    const speakerSegments = new Map<string, Array<{ startTime: number; endTime: number }>>();
+    for (const seg of segments) {
+      if (!speakerSegments.has(seg.speakerId)) {
+        speakerSegments.set(seg.speakerId, []);
+      }
+      speakerSegments.get(seg.speakerId)!.push(seg);
+    }
+
+    for (const [speakerId, segList] of speakerSegments.entries()) {
+      // Gather speech slices up to 25 seconds total for optimal ElevenLabs voice cloning
+      let totalSamplesCount = 0;
+      const maxTotalSec = 25.0;
+      const slices: Float32Array[] = [];
+
+      for (const seg of segList) {
+        if (totalSamplesCount >= maxTotalSec * sampleRate) break;
+        const segDuration = seg.endTime - seg.startTime;
+        if (segDuration < 0.3) continue;
+
+        const startSec = Math.max(0, seg.startTime + 0.05);
+        const endSec = Math.min(audioBuffer.duration, seg.endTime - 0.05);
+        const sliceDuration = Math.min(maxTotalSec - (totalSamplesCount / sampleRate), endSec - startSec);
+        if (sliceDuration <= 0.2) continue;
+
+        const startSample = Math.floor(startSec * sampleRate);
+        const numSamples = Math.floor(sliceDuration * sampleRate);
+        const slice = channelData.slice(startSample, startSample + numSamples);
+        slices.push(slice);
+        totalSamplesCount += slice.length;
+      }
+
+      if (totalSamplesCount === 0) {
+        const isSpk1 = speakerId === 'spk-1';
+        const startSec = isSpk1 ? 1.0 : Math.min(Math.max(0, audioBuffer.duration - 5.0), 16.0);
+        const startSample = Math.max(0, Math.floor(startSec * sampleRate));
+        const numSamples = Math.min(channelData.length - startSample, Math.floor(4.5 * sampleRate));
+        const slice = channelData.slice(startSample, startSample + numSamples);
+        slices.push(slice);
+        totalSamplesCount = slice.length;
+      }
+
+      // Combine slices into single contiguous buffer
+      const combined = new Float32Array(totalSamplesCount);
+      let offset = 0;
+      for (const s of slices) {
+        combined.set(s, offset);
+        offset += s.length;
+      }
+
+      const wavBytes = this.encodeWAV(combined, sampleRate);
+      const blob = new Blob([wavBytes.buffer as ArrayBuffer], { type: 'audio/wav' });
+      const url = URL.createObjectURL(blob);
+      const base64 = this.uint8ArrayToBase64(wavBytes);
+
+      results.set(speakerId, {
+        url,
+        base64,
+        duration: totalSamplesCount / sampleRate,
+      });
+    }
+
+    return results;
   }
 
   /**

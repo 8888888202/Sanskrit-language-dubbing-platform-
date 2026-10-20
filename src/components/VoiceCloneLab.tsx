@@ -39,7 +39,7 @@ export const VoiceCloneLab: React.FC<VoiceCloneLabProps> = ({
     project.speakers[0]?.elevenLabsVoiceId || null
   );
   const [elevenLabsApiKey, setElevenLabsApiKey] = useState<string>(() => {
-    return localStorage.getItem('vaksutra_eleven_key') || '';
+    return localStorage.getItem('elevenlabs_api_key') || localStorage.getItem('vaksutra_eleven_key') || '';
   });
   const [isCreatingIVC, setIsCreatingIVC] = useState<boolean>(false);
   const [ivcRequiresVerification, setIvcRequiresVerification] = useState<boolean>(false);
@@ -175,21 +175,32 @@ export const VoiceCloneLab: React.FC<VoiceCloneLabProps> = ({
       
       // Save user key if provided
       if (elevenLabsApiKey.trim()) {
+        localStorage.setItem('elevenlabs_api_key', elevenLabsApiKey.trim());
         localStorage.setItem('vaksutra_eleven_key', elevenLabsApiKey.trim());
       }
 
-      // Convert audio snippet from speaker or recording to base64
+      const toBase64Chunked = (buffer: ArrayBuffer) => {
+        const bytes = new Uint8Array(buffer);
+        let binary = '';
+        const chunkSize = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+          binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize) as any);
+        }
+        return btoa(binary);
+      };
+
+      // Convert audio snippet from speaker or recording to base64 safely
       let audioBase64: string | undefined = undefined;
       const targetSpeaker = project.speakers.find(s => s.id === selectedSpeakerId) || project.speakers[0];
 
       if (lastRecordedBlobRef.current) {
         const ab = await lastRecordedBlobRef.current.arrayBuffer();
-        audioBase64 = btoa(String.fromCharCode(...new Uint8Array(ab)));
+        audioBase64 = toBase64Chunked(ab);
       } else if (targetSpeaker?.originalAudioSnippetUrl) {
         try {
           const r = await fetch(targetSpeaker.originalAudioSnippetUrl);
           const ab = await r.arrayBuffer();
-          audioBase64 = btoa(String.fromCharCode(...new Uint8Array(ab)));
+          audioBase64 = toBase64Chunked(ab);
         } catch (e) {
           console.warn('Could not read speaker original snippet for IVC:', e);
         }

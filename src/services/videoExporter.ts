@@ -68,26 +68,55 @@ export class VideoExporterService {
         let audioBuffer: AudioBuffer | null = null;
 
         if (seg.audioBlobUrl) {
-          const resp = await fetch(seg.audioBlobUrl);
-          const ab = await resp.arrayBuffer();
-          audioBuffer = await offlineCtx.decodeAudioData(ab);
+          try {
+            const resp = await fetch(seg.audioBlobUrl);
+            if (resp.ok) {
+              const ab = await resp.arrayBuffer();
+              audioBuffer = await offlineCtx.decodeAudioData(ab);
+            }
+          } catch (e) {}
         }
 
         if (!audioBuffer) {
-          const spk = project.speakers.find(s => s.id === seg.speakerId) || project.speakers[0];
+          // Check static pregenerated audio file
+          try {
+            const resp = await fetch(`/audio/dubbed/${seg.id}.wav`);
+            if (resp.ok) {
+              const ab = await resp.arrayBuffer();
+              audioBuffer = await offlineCtx.decodeAudioData(ab);
+            }
+          } catch (e) {}
+        }
+
+        if (!audioBuffer) {
           audioBuffer = this.generateSyntheticSegmentBuffer(
             offlineCtx,
-            Math.max(1, seg.endTime - seg.startTime),
-            spk?.gender === 'female',
-            spk?.estimatedPitchHz || (spk?.gender === 'female' ? 300 : 120)
+            Math.max(1, seg.endTime - seg.startTime)
           );
         }
 
         if (audioBuffer) {
           const source = offlineCtx.createBufferSource();
           source.buffer = audioBuffer;
+
+          // Lip-sync & timeline duration matching:
+          // Strictly keep speed in natural 0.92x to 1.12x range to avoid chipmunk effect
+          const targetDuration = Math.max(0.4, seg.endTime - seg.startTime);
+          const rawDuration = audioBuffer.duration;
+          if (rawDuration > 0 && targetDuration > 0) {
+            const syncRate = Math.max(0.92, Math.min(1.12, rawDuration / targetDuration));
+            source.playbackRate.value = syncRate;
+          }
+
           source.connect(compressor);
-          source.start(Math.max(0, seg.startTime));
+          const segStart = Math.max(0, seg.startTime);
+          source.start(segStart);
+
+          // Zero-Overlap Guard: Cut previous speaker cleanly before next speaker starts
+          const nextSeg = segments[i + 1];
+          if (nextSeg && nextSeg.startTime > segStart + 0.1) {
+            source.stop(nextSeg.startTime - 0.03);
+          }
         }
       } catch (err) {
         console.warn('Audio segment mix fallback:', err);
@@ -206,17 +235,28 @@ export class VideoExporterService {
       try {
         let buffer: AudioBuffer | null = null;
         if (seg.audioBlobUrl) {
-          const r = await fetch(seg.audioBlobUrl);
-          const ab = await r.arrayBuffer();
-          buffer = await audioCtx.decodeAudioData(ab);
+          try {
+            const r = await fetch(seg.audioBlobUrl);
+            if (r.ok) {
+              const ab = await r.arrayBuffer();
+              buffer = await audioCtx.decodeAudioData(ab);
+            }
+          } catch (e) {}
         }
         if (!buffer) {
-          const spk = project.speakers.find(s => s.id === seg.speakerId) || project.speakers[0];
+          // Check static pregenerated studio audio
+          try {
+            const r = await fetch(`/audio/dubbed/${seg.id}.wav`);
+            if (r.ok) {
+              const ab = await r.arrayBuffer();
+              buffer = await audioCtx.decodeAudioData(ab);
+            }
+          } catch (e) {}
+        }
+        if (!buffer) {
           buffer = this.generateSyntheticSegmentBuffer(
             audioCtx,
-            Math.max(1, seg.endTime - seg.startTime),
-            spk?.gender === 'female',
-            spk?.estimatedPitchHz || (spk?.gender === 'female' ? 300 : 120)
+            Math.max(1, seg.endTime - seg.startTime)
           );
         }
         decodedSegments.push({ segment: seg, buffer });
@@ -335,11 +375,19 @@ export class VideoExporterService {
       // Start recording
       mediaRecorder.start(100);
 
-      // Schedule audio stems with precise start times
+      // Schedule audio stems with precise start times and lip-sync duration matching
       const startTimeAudio = audioCtx.currentTime;
       decodedSegments.forEach(({ segment, buffer }) => {
         const source = audioCtx.createBufferSource();
         source.buffer = buffer;
+
+        // Lip-sync & timeline duration matching:
+        const targetDuration = Math.max(0.4, segment.endTime - segment.startTime);
+        if (buffer.duration > 0 && targetDuration > 0) {
+          const syncRate = Math.max(0.8, Math.min(1.35, buffer.duration / targetDuration));
+          source.playbackRate.value = syncRate;
+        }
+
         source.connect(compressor);
         source.start(startTimeAudio + Math.max(0, segment.startTime));
       });
@@ -435,58 +483,62 @@ export class VideoExporterService {
     }
 
     // Subtitle rendering & Burned-in caption occlusion
-    if (activeSegment && subtitlesMode !== 'off') {
+    if (subtitlesMode !== 'off') {
       ctx.save();
       const centerX = width / 2;
       const baseFontSize = Math.max(18, Math.round(height * 0.038));
+      const bandHeight = Math.round(baseFontSize * 3.4);
+      const bandY = height - bandHeight - Math.round(baseFontSize * 0.4);
 
-      // 1. Occlude original burned-in Hindi captions (typically in the bottom 14% of the frame)
+      // 1. Occlude original burned-in Hindi captions continuously (so they NEVER flash during pauses)
       if (occludeOriginalCaptions) {
-        const bandHeight = Math.round(baseFontSize * 3.4);
-        const bandY = height - bandHeight - Math.round(baseFontSize * 0.4);
-
-        // Clean dark caption backdrop bar that completely covers the original burned-in text
-        ctx.fillStyle = 'rgba(8, 8, 12, 0.94)';
+        ctx.fillStyle = 'rgba(8, 8, 12, 0.96)';
         ctx.beginPath();
-        const boxWidth = Math.min(width * 0.92, Math.round(width - 32));
+        const boxWidth = Math.min(width * 0.94, Math.round(width - 24));
         const boxX = (width - boxWidth) / 2;
-        ctx.roundRect(boxX, bandY, boxWidth, bandHeight, 8);
+        if (typeof (ctx as any).roundRect === 'function') {
+          (ctx as any).roundRect(boxX, bandY, boxWidth, bandHeight, 8);
+        } else {
+          ctx.rect(boxX, bandY, boxWidth, bandHeight);
+        }
         ctx.fill();
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.14)';
         ctx.lineWidth = 1;
         ctx.stroke();
       }
 
-      // 2. Render Sanskrit subtitles cleanly on top
-      ctx.textAlign = 'center';
-      ctx.lineWidth = Math.max(2, Math.round(baseFontSize * 0.12));
-      ctx.strokeStyle = 'rgba(0, 0, 0, 0.95)';
-      ctx.fillStyle = '#ffffff';
+      // 2. Render Sanskrit subtitles cleanly on top if active segment is speaking
+      if (activeSegment) {
+        ctx.textAlign = 'center';
+        ctx.lineWidth = Math.max(2, Math.round(baseFontSize * 0.12));
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.95)';
+        ctx.fillStyle = '#ffffff';
 
-      if (subtitlesMode === 'dual') {
-        // Devanagari line on top
-        ctx.font = `700 ${baseFontSize}px "Noto Sans Devanagari", sans-serif`;
-        const yTop = height - Math.round(baseFontSize * 2.2);
-        ctx.strokeText(activeSegment.sanskritDevanagari, centerX, yTop);
-        ctx.fillText(activeSegment.sanskritDevanagari, centerX, yTop);
+        if (subtitlesMode === 'dual') {
+          // Devanagari line on top
+          ctx.font = `700 ${baseFontSize}px "Noto Sans Devanagari", sans-serif`;
+          const yTop = height - Math.round(baseFontSize * 2.2);
+          ctx.strokeText(activeSegment.sanskritDevanagari, centerX, yTop);
+          ctx.fillText(activeSegment.sanskritDevanagari, centerX, yTop);
 
-        // Roman IAST phonetics below
-        const romanFontSize = Math.round(baseFontSize * 0.72);
-        ctx.font = `italic 500 ${romanFontSize}px "Plus Jakarta Sans", sans-serif`;
-        ctx.fillStyle = '#e2e8f0';
-        const yBottom = height - Math.round(baseFontSize * 0.9);
-        ctx.strokeText(activeSegment.sanskritIAST, centerX, yBottom);
-        ctx.fillText(activeSegment.sanskritIAST, centerX, yBottom);
-      } else if (subtitlesMode === 'devanagari') {
-        ctx.font = `700 ${baseFontSize * 1.1}px "Noto Sans Devanagari", sans-serif`;
-        const y = height - Math.round(baseFontSize * 1.3);
-        ctx.strokeText(activeSegment.sanskritDevanagari, centerX, y);
-        ctx.fillText(activeSegment.sanskritDevanagari, centerX, y);
-      } else if (subtitlesMode === 'iast') {
-        ctx.font = `600 ${baseFontSize * 0.95}px "Plus Jakarta Sans", sans-serif`;
-        const y = height - Math.round(baseFontSize * 1.3);
-        ctx.strokeText(activeSegment.sanskritIAST, centerX, y);
-        ctx.fillText(activeSegment.sanskritIAST, centerX, y);
+          // Roman IAST phonetics below
+          const romanFontSize = Math.round(baseFontSize * 0.72);
+          ctx.font = `italic 500 ${romanFontSize}px "Plus Jakarta Sans", sans-serif`;
+          ctx.fillStyle = '#e2e8f0';
+          const yBottom = height - Math.round(baseFontSize * 0.9);
+          ctx.strokeText(activeSegment.sanskritIAST, centerX, yBottom);
+          ctx.fillText(activeSegment.sanskritIAST, centerX, yBottom);
+        } else if (subtitlesMode === 'devanagari') {
+          ctx.font = `700 ${baseFontSize * 1.1}px "Noto Sans Devanagari", sans-serif`;
+          const y = height - Math.round(baseFontSize * 1.3);
+          ctx.strokeText(activeSegment.sanskritDevanagari, centerX, y);
+          ctx.fillText(activeSegment.sanskritDevanagari, centerX, y);
+        } else if (subtitlesMode === 'iast') {
+          ctx.font = `600 ${baseFontSize * 0.95}px "Plus Jakarta Sans", sans-serif`;
+          const y = height - Math.round(baseFontSize * 1.3);
+          ctx.strokeText(activeSegment.sanskritIAST, centerX, y);
+          ctx.fillText(activeSegment.sanskritIAST, centerX, y);
+        }
       }
 
       ctx.restore();

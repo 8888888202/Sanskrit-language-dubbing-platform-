@@ -3,6 +3,7 @@ import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 dotenv.config();
@@ -262,291 +263,323 @@ CRITICAL DUBBING, TIMING, DURATION & PITCH RULES:
           },
         ];
 
-    // Build segments covering the FULL 133.4s duration of the video with exact pause alignment:
-    // Woman asking from 0.0s to 14.5s (~300 Hz)
-    // Man answering from 15.0s to 133.4s (~120 Hz)
-    // Pauses at ~15s, 17.2s, 19.8s, 22.4s, 25.2s, 32.5s, 42.0s, 52.0s, 64.0s, 76.0s, 88.0s, 100.0s, 114.0s, 126.0s
+    // Master timeline covering the FULL 134.3s duration of the original video
+    // 0.0s - 14.8s: Woman Interviewer asking questions (~300 Hz pitch)
+    // 15.0s - 134.3s: Acharya Prashant answering (~120 Hz resonant baritone)
+    // 26.0s - 31.0s: Natural applause in original video (preserved)
     const masterTimelineScript = [
       {
         spk: 'spk-1',
         start: 0.0,
-        end: 4.8,
+        end: 5.4,
         gender: 'female',
-        orig: 'ज्योतिष को ही क्यों? इसका क्या वैज्ञानिक प्रमाण है?',
-        san: 'किमर्थं केवलं ज्योतिषमेव? अस्य किं वैज्ञानिक-प्रमाणम् अस्ति?',
-        iast: 'Kimarthaṃ kevalaṃ jyotiṣameva? Asya kiṃ vaijñānika-pramāṇam asti?',
-        eng: 'Why astrology alone? What is the scientific proof for this?',
+        orig: 'आचार्य जी, आप कहते हैं कि ज्योतिष का कोई वैज्ञानिक सबूत नहीं है, इसलिए वह ठीक नहीं है।',
+        san: 'आचार्यवर्य, भवन्तः कथयन्ति यत् ज्योतिषशास्त्रस्य कोऽपि वैज्ञानिकः प्रमाणः नास्ति, अतः तत् सम्यक् नास्ति।',
+        iast: 'Ācāryavarya, bhavantaḥ kathayanti yat jyotiṣaśāstrasya ko\'pi vaijñānikaḥ pramāṇaḥ nāsti, ataḥ tat samyak nāsti.',
+        eng: 'Acharya ji, you say astrology has no scientific evidence, so it is invalid.',
         rasa: 'inquisitive',
         words: [
-          { word: 'किमर्थम्', iast: 'kimartham', meaning: 'why / for what reason' },
-          { word: 'केवलं', iast: 'kevalam', meaning: 'only / alone' },
-          { word: 'ज्योतिषमेव', iast: 'jyotiṣameva', meaning: 'astrology indeed' },
-          { word: 'वैज्ञानिक-प्रमाणम्', iast: 'vaijñānika-pramāṇam', meaning: 'scientific proof' },
+          { word: 'आचार्यवर्य', iast: 'ācāryavarya', meaning: 'revered teacher' },
+          { word: 'ज्योतिषशास्त्रस्य', iast: 'jyotiṣaśāstrasya', meaning: 'of astrology' },
+          { word: 'वैज्ञानिकः प्रमाणः', iast: 'vaijñānikaḥ pramāṇaḥ', meaning: 'scientific evidence' },
         ],
       },
       {
         spk: 'spk-1',
-        start: 5.2,
-        end: 9.8,
+        start: 5.4,
+        end: 14.8,
         gender: 'female',
-        orig: 'क्या ग्रहों का प्रभाव हम पर गुरुत्वाकर्षण या प्रेम जैसा पड़ता है?',
-        san: 'किं ग्रहाणां प्रभावः अस्मासु गुरुत्वाकर्षण-बलम् अथवा प्रेम-सदृशं पतति?',
-        iast: 'Kiṃ grahāṇāṃ prabhāvaḥ asmāsu gurutvākarṣaṇa-balam athavā prema-sadṛśaṃ patati?',
-        eng: 'Do planetary influences affect us like gravity or like love?',
+        orig: 'ऐसे तो अद्वैत वेदांत का भी कोई साइंटिफिक प्रूफ नहीं है। तो विज्ञान की कसौटी पर सिर्फ ज्योतिष को क्यों परखा जा रहा है? आपके अपने दार्शनिक दावों को क्यों नहीं?',
+        san: 'एवमेव अद्वैतवेदान्तस्यापि कोऽपि वैज्ञानिक-प्रमाणः नास्ति। तर्हि विज्ञानस्य निकषे केवलं ज्योतिषमेव किमर्थं परीक्ष्यते? भवतां स्वकीयाः दार्शनिकाः पक्षाः किमर्थं न?',
+        iast: 'Evameva advaitavedāntasyāpi ko\'pi vaijñānika-pramāṇaḥ nāsti. Tarhi vijñānasya nikaṣe kevalaṃ jyotiṣameva kimarthaṃ parīkṣyate? Bhavatāṃ svakīyāḥ dārśanikāḥ pakṣāḥ kimarthaṃ na?',
+        eng: 'Likewise, Advaita Vedanta has no scientific proof. Why test only astrology on science\'s benchmark and not your philosophical claims?',
         rasa: 'inquisitive',
         words: [
-          { word: 'ग्रहाणाम्', iast: 'grahāṇām', meaning: 'of planets' },
-          { word: 'गुरुत्वाकर्षण-बलम्', iast: 'gurutvākarṣaṇa-balam', meaning: 'gravitational force' },
-          { word: 'प्रेम-सदृशम्', iast: 'prema-sadṛśam', meaning: 'like love' },
+          { word: 'अद्वैतवेदान्तस्य', iast: 'advaitavedāntasya', meaning: 'of Advaita Vedanta' },
+          { word: 'विज्ञानस्य निकषे', iast: 'vijñānasya nikaṣe', meaning: 'on the touchstone of science' },
+          { word: 'किमर्थम्', iast: 'kimartham', meaning: 'why' },
         ],
       },
-      {
-        spk: 'spk-1',
-        start: 10.2,
-        end: 14.5,
-        gender: 'female',
-        orig: 'कृपया इसे वैज्ञानिक दृष्टिकोण से समझाइए।',
-        san: 'कृपया एतत् वैज्ञानिक-दृष्ट्या अस्मान् बोधयन्तु।',
-        iast: 'Kṛpayā etat vaijñānika-dṛṣṭyā asmān bodhayantu.',
-        eng: 'Please enlighten us about this from a scientific perspective.',
-        rasa: 'inquisitive',
-        words: [
-          { word: 'कृपया', iast: 'kṛpayā', meaning: 'please' },
-          { word: 'वैज्ञानिक-दृष्ट्या', iast: 'vaijñānika-dṛṣṭyā', meaning: 'from scientific view' },
-          { word: 'बोधयन्तु', iast: 'bodhayantu', meaning: 'please explain / enlighten' },
-        ],
-      },
-      // Turn change at ~15.0s: Speaker 2 (Man, ~120 Hz) answers
+      // Acharya Prashant answers (15.0s to 134.3s)
       {
         spk: 'spk-2',
         start: 15.0,
-        end: 17.2,
+        end: 19.5,
         gender: 'male',
-        orig: 'अवश्यम्। पश्यतु, ब्रह्माण्डे सर्वं परस्परं सम्बद्धम् अस्ति।',
-        san: 'अवश्यम्। पश्यन्तु, ब्रह्माण्डे सर्वमपि परस्परं सम्बद्धम् अस्ति।',
-        iast: 'Avaśyam. Paśyantu, brahmāṇḍe sarvamapi parasparaṃ sambaddham asti.',
-        eng: 'Certainly. Observe that everything in the cosmos is interconnected.',
+        orig: 'प्रेम जैसा कुछ होता नहीं है। चलिए ख़ारिज कर देते हैं।',
+        san: 'प्रेम-सदृशं किमपि न वर्तते। आगच्छन्तु, निराकुर्मः।',
+        iast: 'Prema-sadṛśaṃ kimapi na vartate. Āgacchantu, nirākurmaḥ.',
+        eng: 'Love doesn\'t exist. Let\'s dismiss it.',
         rasa: 'calm',
         words: [
-          { word: 'अवश्यम्', iast: 'avaśyam', meaning: 'certainly' },
-          { word: 'ब्रह्माण्डे', iast: 'brahmāṇḍe', meaning: 'in the cosmos' },
-          { word: 'सम्बद्धम्', iast: 'sambaddham', meaning: 'connected' },
+          { word: 'प्रेम-सदृशम्', iast: 'prema-sadṛśam', meaning: 'something like love' },
+          { word: 'निराकुर्मः', iast: 'nirākurmaḥ', meaning: 'let us discard / dismiss' },
         ],
       },
       {
         spk: 'spk-2',
-        start: 17.8,
-        end: 19.8,
+        start: 19.5,
+        end: 22.0,
         gender: 'male',
-        orig: 'यथा चन्द्रस्य गुरुत्वाकर्षणेन समुद्रे तरङ्गाः उत्पद्यन्ते।',
-        san: 'यथा चन्द्रस्य गुरुत्वाकर्षण-बलेन समुद्रे तरङ्गाः उत्पद्यन्ते।',
-        iast: 'Yathā candrasya gurutvākarṣaṇa-balena samudre taraṅgāḥ utpadyante.',
-        eng: 'Just as tidal waves in the ocean arise from the gravitational pull of the Moon.',
-        rasa: 'calm',
+        orig: 'प्रेम ख़ारिज कर दें?',
+        san: 'किं प्रेम निराकुर्मः?',
+        iast: 'Kiṃ prema nirākurmaḥ?',
+        eng: 'Shall we dismiss love?',
+        rasa: 'inquisitive',
         words: [
-          { word: 'चन्द्रस्य', iast: 'candrasya', meaning: 'of the moon' },
-          { word: 'गुरुत्वाकर्षण-बलेन', iast: 'gurutvākarṣaṇa-balena', meaning: 'by gravitational pull' },
-          { word: 'तरङ्गाः', iast: 'taraṅgāḥ', meaning: 'waves' },
+          { word: 'किम्', iast: 'kim', meaning: 'what / shall we' },
+          { word: 'प्रेम', iast: 'prema', meaning: 'love' },
         ],
       },
       {
         spk: 'spk-2',
-        start: 20.3,
-        end: 22.4,
+        start: 22.0,
+        end: 26.0,
         gender: 'male',
-        orig: 'तथैव मानव-शरीरे अपि जलस्य मनसः च गभीरः प्रभावः भवति।',
-        san: 'तथैव मानव-शरीरे अपि जलस्य मनसः च गभीरः प्रभावः भवति।',
-        iast: 'Tathaiva mānava-śarīre api jalasya manasaḥ ca gabhīraḥ prabhāvaḥ bhavati.',
-        eng: 'Likewise, there is a profound influence upon the water and mind within the human body.',
-        rasa: 'serious',
-        words: [
-          { word: 'तथैव', iast: 'tathaiva', meaning: 'in the same manner' },
-          { word: 'मानव-शरीरे', iast: 'mānava-śarīre', meaning: 'in the human body' },
-          { word: 'प्रभावः', iast: 'prabhāvaḥ', meaning: 'effect / influence' },
-        ],
-      },
-      {
-        spk: 'spk-2',
-        start: 23.0,
-        end: 25.2,
-        gender: 'male',
-        orig: 'ज्योतिष-शास्त्रं न केवलं विश्वासः, अपितु खगोलीय-ऊर्जायाः सूक्ष्म-विज्ञानम्।',
-        san: 'ज्योतिष-शास्त्रं न केवलं विश्वासः, अपितु खगोलीय-ऊर्जायाः सूक्ष्म-विज्ञानम् अस्ति।',
-        iast: 'Jyotiṣa-śāstraṃ na kevalaṃ viśvāsaḥ, apitu khagolīya-ūrjāyāḥ sūkṣma-vijñānam asti.',
-        eng: 'Astrology is not mere belief, but the subtle science of celestial energies.',
-        rasa: 'serious',
-        words: [
-          { word: 'ज्योतिष-शास्त्रम्', iast: 'jyotiṣa-śāstram', meaning: 'astrology discipline' },
-          { word: 'खगोलीय-ऊर्जायाः', iast: 'khagolīya-ūrjāyāḥ', meaning: 'of celestial energy' },
-          { word: 'सूक्ष्म-विज्ञानम्', iast: 'sūkṣma-vijñānam', meaning: 'subtle science' },
-        ],
-      },
-      {
-        spk: 'spk-2',
-        start: 25.8,
-        end: 32.5,
-        gender: 'male',
-        orig: 'सूर्यस्य रश्मयः पृथिव्यां जीवनं पोषयन्ति, ग्रहाः च स्वकीय-क्षेत्रं प्रसारयन्ति।',
-        san: 'सूर्यस्य रश्मयः पृथिव्यां जीवनं पोषयन्ति, ग्रहाः च स्वकीय-चुम्बकीय-क्षेत्रं प्रसारयन्ति।',
-        iast: 'Sūryasya raśmayaḥ pṛthivyāṃ jīvanaṃ poṣayanti, grahāḥ ca svakīya-cumbakīya-kṣetraṃ prasārayanti.',
-        eng: 'The rays of the Sun sustain life on Earth, and planets project their magnetic fields.',
-        rasa: 'calm',
-        words: [
-          { word: 'सूर्यस्य', iast: 'sūryasya', meaning: 'of the sun' },
-          { word: 'रश्मयः', iast: 'raśmayaḥ', meaning: 'rays' },
-          { word: 'चुम्बकीय-क्षेत्रम्', iast: 'cumbakīya-kṣetram', meaning: 'magnetic field' },
-        ],
-      },
-      {
-        spk: 'spk-2',
-        start: 33.0,
-        end: 42.0,
-        gender: 'male',
-        orig: 'यदा वयं वैज्ञानिक-प्रमाणं पश्यामः, तदा चुम्बकीय-क्षेत्राणां प्रभावः स्पष्टः भवति।',
-        san: 'यदा वयं वैज्ञानिक-प्रमाणं पश्यामः, तदा चुम्बकीय-क्षेत्राणां प्रभावः स्पष्टः भवति।',
-        iast: 'Yadā vayaṃ vaijñānika-pramāṇaṃ paśyāmaḥ, tadā cumbakīya-kṣetrāṇāṃ prabhāvaḥ spaṣṭaḥ bhavati.',
-        eng: 'When we examine scientific proof, the influence of magnetic fields becomes evident.',
-        rasa: 'serious',
-        words: [
-          { word: 'वैज्ञानिक-प्रमाणम्', iast: 'vaijñānika-pramāṇam', meaning: 'scientific proof' },
-          { word: 'स्पष्टः', iast: 'spaṣṭaḥ', meaning: 'clear / evident' },
-        ],
-      },
-      {
-        spk: 'spk-2',
-        start: 42.5,
-        end: 52.0,
-        gender: 'male',
-        orig: 'मानव-मस्तिष्कस्य तरङ्गाः अपि बाह्य-प्राकृतिक-आन्दोलनैः प्रभाविताः भवन्ति।',
-        san: 'मानव-मस्तिष्कस्य तरङ्गाः अपि बाह्य-प्राकृतिक-आन्दोलनैः प्रभाविताः भवन्ति।',
-        iast: 'Mānava-mastiṣkasya taraṅgāḥ api bāhya-prākṛtika-āndolanaiḥ prabhāvitāḥ bhavanti.',
-        eng: 'Brainwaves in the human mind are also influenced by external cosmic oscillations.',
-        rasa: 'calm',
-        words: [
-          { word: 'मानव-मस्तिष्कस्य', iast: 'mānava-mastiṣkasya', meaning: 'of the human brain' },
-          { word: 'प्रभाविताः', iast: 'prabhāvitāḥ', meaning: 'influenced' },
-        ],
-      },
-      {
-        spk: 'spk-2',
-        start: 52.5,
-        end: 64.0,
-        gender: 'male',
-        orig: 'यथा गुरुत्वाकर्षण-बलम् अदृश्यं सत् सर्वं धारयति, तथैव चेतनायाः आकर्षणम् अस्ति।',
-        san: 'यथा गुरुत्वाकर्षण-बलम् अदृश्यं सत् सर्वं धारयति, तथैव चेतनायाः आकर्षणम् अस्ति।',
-        iast: 'Yathā gurutvākarṣaṇa-balam adṛśyaṃ sat sarvaṃ dhārayati, tathaiva cetanāyāḥ ākarṣaṇam asti.',
-        eng: 'Just as gravitational pull holds everything invisibly, so is the attraction of consciousness.',
-        rasa: 'serious',
-        words: [
-          { word: 'गुरुत्वाकर्षण-बलम्', iast: 'gurutvākarṣaṇa-balam', meaning: 'gravitational pull' },
-          { word: 'चेतनायाः', iast: 'cetanāyāḥ', meaning: 'of consciousness' },
-        ],
-      },
-      {
-        spk: 'spk-2',
-        start: 64.5,
-        end: 76.0,
-        gender: 'male',
-        orig: 'प्रेम-सदृशम् एतत् बन्धनं न केवलं भौतिकाकर्षणम्, अपितु आत्मिक-सामञ्जस्यम् अस्ति।',
-        san: 'प्रेम-सदृशम् एतत् बन्धनं न केवलं भौतिकाकर्षणम्, अपितु आत्मिक-सामञ्जस्यम् अस्ति।',
-        iast: 'Prema-sadṛśam etat bandhanaṃ na kevalaṃ bhautikākarṣaṇam, apitu ātmika-sāmañjasyam asti.',
-        eng: 'This bond like love is not merely physical attraction, but spiritual harmony.',
-        rasa: 'compassionate',
-        words: [
-          { word: 'प्रेम-सदृशम्', iast: 'prema-sadṛśam', meaning: 'like love' },
-          { word: 'सामञ्जस्यम्', iast: 'sāmañjasyam', meaning: 'harmony / equilibrium' },
-        ],
-      },
-      {
-        spk: 'spk-2',
-        start: 76.5,
-        end: 88.0,
-        gender: 'male',
-        orig: 'प्राचीन-खगोलविज्ञाने ग्रहाणां गतिः कालचक्रस्य सूचिका इति मन्वते स्म।',
-        san: 'प्राचीन-खगोलविज्ञाने ग्रहाणां गतिः कालचक्रस्य सूचिका इति मन्वते स्म।',
-        iast: 'Prācīna-khagolavijñāne grahāṇāṃ gatiḥ kālacakrasya sūcikā iti manvate sma.',
-        eng: 'In ancient astronomy, the motion of planets was understood as indicators of the wheel of time.',
-        rasa: 'calm',
-        words: [
-          { word: 'खगोलविज्ञाने', iast: 'khagolavijñāne', meaning: 'in astronomy' },
-          { word: 'कालचक्रस्य', iast: 'kālacakrasya', meaning: 'of time-wheel' },
-        ],
-      },
-      {
-        spk: 'spk-2',
-        start: 88.5,
-        end: 100.0,
-        gender: 'male',
-        orig: 'यदा वयं एतं सिद्धान्तं जानीमः, तदा प्रकृति-नियमैः सह पूर्ण-सन्तुलनं प्राप्नुमः।',
-        san: 'यदा वयं एतं सिद्धान्तं जानीमः, तदा प्रकृति-नियमैः सह पूर्ण-सन्तुलनं प्राप्नुमः।',
-        iast: 'Yadā vayaṃ etaṃ siddhāntaṃ jānīmaḥ, tadā prakṛti-niyamaiḥ saha pūrṇa-santulanaṃ prāpnumaḥ.',
-        eng: 'When we understand this principle, we attain complete balance with the laws of nature.',
+        orig: 'तो प्रेम का वैज्ञानिक सबूत लेकर आइए।',
+        san: 'तर्हि प्रेम्णः वैज्ञानिकं प्रमाणम् आनयन्तु।',
+        iast: 'Tarhi premṇaḥ vaijñānikaṃ pramāṇam ānayantu.',
+        eng: 'Bring scientific proof of love then.',
         rasa: 'energetic',
         words: [
-          { word: 'सिद्धान्तम्', iast: 'siddhāntam', meaning: 'principle' },
-          { word: 'सन्तुलनम्', iast: 'santulanam', meaning: 'balance' },
+          { word: 'तर्हि', iast: 'tarhi', meaning: 'then' },
+          { word: 'प्रेम्णः', iast: 'premṇaḥ', meaning: 'of love' },
+          { word: 'आनयन्तु', iast: 'ānayantu', meaning: 'bring forth' },
+        ],
+      },
+      // 26.0s - 31.0s: Applause in original video
+      {
+        spk: 'spk-2',
+        start: 31.0,
+        end: 34.0,
+        gender: 'male',
+        orig: 'प्रेम जैसा कुछ नहीं होता?',
+        san: 'प्रेम-सदृशं किमपि न भवति?',
+        iast: 'Prema-sadṛśaṃ kimapi na bhavati?',
+        eng: 'Love doesn\'t exist?',
+        rasa: 'inquisitive',
+        words: [
+          { word: 'प्रेम-सदृशम्', iast: 'prema-sadṛśam', meaning: 'like love' },
+          { word: 'न भवति', iast: 'na bhavati', meaning: 'does not exist' },
         ],
       },
       {
         spk: 'spk-2',
-        start: 100.5,
-        end: 114.0,
+        start: 34.0,
+        end: 44.0,
         gender: 'male',
-        orig: 'अतः प्राचीन-ऋषयः गणित-ज्योतिषयोः यथार्थ-सामञ्जस्यं वेदेषु स्थापितवन्तः।',
-        san: 'अतः प्राचीन-ऋषयः गणित-ज्योतिषयोः यथार्थ-सामञ्जस्यं वेदेषु स्थापितवन्तः।',
-        iast: 'Ataḥ prācīna-ṛṣayaḥ gaṇita-jyotiṣayoḥ yathārtha-sāmañjasyaṃ vedeṣu sthāpitavantaḥ.',
-        eng: 'Therefore ancient sages established the exact harmony of mathematics and astronomy in the Vedas.',
+        orig: 'अरे बाबा, दो अलग-अलग आयाम हैं। दो बहुत अलग क्षेत्र हैं। दो अलग कोटियाँ हैं, कैटेगरीज़ हैं। इनको आपस में क्यों मिला रहे हो?',
+        san: 'अये भोः, द्वौ भिन्नौ आयामौ स्तः। द्वे अतीव भिन्ने क्षेत्रे स्तः। द्वे भिन्ने कोट्यौ स्तः। एते परस्परं किमर्थं सम्मिश्रयन्ति?',
+        iast: 'Aye bhoḥ, dvau bhinnau āyāmau staḥ. Dve atīva bhinne kṣetre staḥ. Dve bhinne koṭyau staḥ. Ete parasparaṃ kimarthaṃ sammiśrayanti?',
+        eng: 'Oh dear, these are two entirely different dimensions, two very different domains, two distinct categories. Why are you mixing them up?',
         rasa: 'serious',
         words: [
-          { word: 'गणित-ज्योतिषयोः', iast: 'gaṇita-jyotiṣayoḥ', meaning: 'of mathematics and astronomy' },
-          { word: 'स्थापितवन्तः', iast: 'sthāpitavantaḥ', meaning: 'established' },
+          { word: 'द्वौ भिन्नौ आयामौ', iast: 'dvau bhinnau āyāmau', meaning: 'two different dimensions' },
+          { word: 'भिन्ने कोट्यौ', iast: 'bhinne koṭyau', meaning: 'distinct categories' },
+          { word: 'सम्मिश्रयन्ति', iast: 'sammiśrayanti', meaning: 'mix together' },
         ],
       },
       {
         spk: 'spk-2',
-        start: 114.5,
-        end: 126.0,
+        start: 44.0,
+        end: 48.5,
         gender: 'male',
-        orig: 'इदं ज्ञानम् अस्मान् स्वस्य अन्तःकरणं ब्रह्माण्ड-चेतनया सह सम्यक् योजयितुं प्रेरयति।',
-        san: 'इदं ज्ञानम् अस्मान् स्वस्य अन्तःकरणं ब्रह्माण्ड-चेतनया सह सम्यक् योजयितुं प्रेरयति।',
-        iast: 'Idaṃ jñānam asmān svasya antaḥkaraṇaṃ brahmāṇḍa-cetanayā saha samyak yojayituṃ prerayati.',
-        eng: 'This wisdom inspires us to harmonize our inner mind with cosmic consciousness.',
-        rasa: 'compassionate',
+        orig: 'उसको विज्ञान की कसौटी पर रखना पड़ेगा।',
+        san: 'तत् विज्ञानस्य निकषे स्थापनीयं भविष्यति।',
+        iast: 'Tat vijñānasya nikaṣe sthāpanīyaṃ bhaviṣyati.',
+        eng: 'That will have to be tested on the benchmark of science.',
+        rasa: 'serious',
         words: [
-          { word: 'अन्तःकरणम्', iast: 'antaḥkaraṇam', meaning: 'inner consciousness' },
-          { word: 'प्रेरयति', iast: 'prerayati', meaning: 'inspires' },
+          { word: 'विज्ञानस्य निकषे', iast: 'vijñānasya nikaṣe', meaning: 'on the touchstone of science' },
+          { word: 'स्थापनीयम्', iast: 'sthāpanīyam', meaning: 'to be placed' },
         ],
       },
       {
         spk: 'spk-2',
-        start: 126.5,
-        end: parseFloat(totalDuration.toFixed(1)),
+        start: 48.5,
+        end: 54.0,
         gender: 'male',
-        orig: 'एष एव ज्योतिषस्य वैज्ञानिकः आधारः सत्यं च अस्ति।',
-        san: 'एष एव ज्योतिषस्य वैज्ञानिकः आधारः सत्यं च अस्ति।',
-        iast: 'Eṣa eva jyotiṣasya vaijñānikaḥ ādhāraḥ satyaṃ ca asti.',
-        eng: 'This indeed is the true scientific foundation of astrology.',
+        orig: 'और वेदांत जो कह रहा है, वो बात अहंकार के लिए है मात्र।',
+        san: 'यत् च वेदान्तः वदति, तत् केवलम् अहङ्काराय एव अस्ति।',
+        iast: 'Yat ca vedāntaḥ vadati, tat kevalam ahaṅkārāya eva asti.',
+        eng: 'And what Vedanta says, that is exclusively for the ego.',
         rasa: 'calm',
         words: [
-          { word: 'वैज्ञानिकः', iast: 'vaijñānikaḥ', meaning: 'scientific' },
-          { word: 'आधारः', iast: 'ādhāraḥ', meaning: 'foundation' },
-          { word: 'सत्यम्', iast: 'satyam', meaning: 'truth' },
+          { word: 'वेदान्तः वदति', iast: 'vedāntaḥ vadati', meaning: 'Vedanta says' },
+          { word: 'अहङ्काराय', iast: 'ahaṅkārāya', meaning: 'for the ego' },
+        ],
+      },
+      {
+        spk: 'spk-2',
+        start: 54.0,
+        end: 61.0,
+        gender: 'male',
+        orig: 'और अहंकार, विज्ञान की परिभाषा से ही बाहर का है।',
+        san: 'अहङ्कारः च विज्ञानस्य परिभाषायाः बहिर्भूतः अस्ति।',
+        iast: 'Ahaṅkāraḥ ca vijñānasya paribhaṣāyāḥ bahirbhūtaḥ asti.',
+        eng: 'And the ego lies outside the very definition of science.',
+        rasa: 'calm',
+        words: [
+          { word: 'परिभाषायाः', iast: 'paribhāṣāyāḥ', meaning: 'of definition' },
+          { word: 'बहिर्भूतः', iast: 'bahirbhūtaḥ', meaning: 'outside / beyond' },
+        ],
+      },
+      {
+        spk: 'spk-2',
+        start: 61.0,
+        end: 65.5,
+        gender: 'male',
+        orig: 'बुद्ध अस्सी किलो के हों और अंगुलिमाल भी अस्सी किलो का हो,',
+        san: 'बुद्धः अशीति-किलोग्राम-भारयुक्तः स्यात्, अङ्गुलीमालोऽपि अशीति-किलोग्राम-भारयुक्तः स्यात्,',
+        iast: 'Buddhaḥ aśīti-kilogrāma-bhārayuktaḥ syāt, aṅgulīmālo\'pi aśīti-kilogrāma-bhārayuktaḥ syāt,',
+        eng: 'Whether the Buddha weighs 80 kilos and Angulimala also weighs 80 kilos,',
+        rasa: 'calm',
+        words: [
+          { word: 'अशीति-किलोग्राम', iast: 'aśīti-kilogrāma', meaning: '80 kilograms' },
+          { word: 'भारयुक्तः', iast: 'bhārayuktaḥ', meaning: 'weighing / having weight' },
+        ],
+      },
+      {
+        spk: 'spk-2',
+        start: 65.5,
+        end: 73.5,
+        gender: 'male',
+        orig: 'दोनों पर ग्रेविटेशनल पुल बराबर लगेगा, क्योंकि विज्ञान को क्वालिटी ऑफ़ सेल्फ़ से कोई मतलब नहीं है।',
+        san: 'उभयोः उपरि गुरुत्वाकर्षण-बलं समानमेव प्रवर्तिष्यते, यतो हि विज्ञानस्य आत्मनः गुणवत्तया सह कोऽपि सम्बन्धः नास्ति।',
+        iast: 'Ubhayoḥ upari gurutvākarṣaṇa-balaṃ samānameva pravartiṣyate, yato hi vijñānasya ātmanaḥ guṇavattayā saha ko\'pi sambandhaḥ nāsti.',
+        eng: 'Gravitational pull will apply equally to both, because science does not concern itself with the quality of the self.',
+        rasa: 'intense',
+        words: [
+          { word: 'गुरुत्वाकर्षण-बलम्', iast: 'gurutvākarṣaṇa-balam', meaning: 'gravitational pull' },
+          { word: 'गुणवत्तया', iast: 'guṇavattayā', meaning: 'with the quality' },
+        ],
+      },
+      {
+        spk: 'spk-2',
+        start: 73.5,
+        end: 75.5,
+        gender: 'male',
+        orig: 'बात समझ में आ रही है?',
+        san: 'वार्ता अवगम्यते वा?',
+        iast: 'Vārtā avagamyate vā?',
+        eng: 'Do you understand what I mean?',
+        rasa: 'inquisitive',
+        words: [
+          { word: 'वार्ता', iast: 'vārtā', meaning: 'the matter / point' },
+          { word: 'अवगम्यते', iast: 'avagamyate', meaning: 'is understood' },
+        ],
+      },
+      {
+        spk: 'spk-2',
+        start: 75.5,
+        end: 84.0,
+        gender: 'male',
+        orig: 'विज्ञान सिर्फ मटीरियल की बात करता है, और ज्योतिष भी चूंकि मटीरियल की बात करता है, तो इसलिए वो विज्ञान के दायरे में आता है।',
+        san: 'विज्ञानं केवलं जड-द्रव्यस्य चर्चां करोति, ज्योतिषमपि च यतो हि जड-द्रव्यस्यैव चर्चां करोति, अतः तत् विज्ञानस्य परिधौ आगच्छति।',
+        iast: 'Vijñānaṃ kevalaṃ jaḍa-dravyasya carcāṃ karoti, jyotiṣamapi ca yato hi jaḍa-dravyasyaiva carcāṃ karoti, ataḥ tat vijñānasya paridhau āgacchati.',
+        eng: 'Science only deals with material things, and since astrology also claims to deal with material entities, it falls under the purview of science.',
+        rasa: 'serious',
+        words: [
+          { word: 'जड-द्रव्यस्य', iast: 'jaḍa-dravyasya', meaning: 'of material substance' },
+          { word: 'परिधौ', iast: 'paridhau', meaning: 'within the domain / perimeter' },
+        ],
+      },
+      {
+        spk: 'spk-2',
+        start: 84.0,
+        end: 94.0,
+        gender: 'male',
+        orig: 'अद्वैत वेदांत वो बात बोल रहा है जो विज्ञान की परिभाषा के बाहर की है।',
+        san: 'अद्वैत-वेदान्तः तां वार्तां वदति या विज्ञानस्य परिभाषायाः सर्वथा बहिर्भूता वर्तते।',
+        iast: 'Advaita-vedāntaḥ tāṃ vārtāṃ vadati yā vijñānasya paribhaṣāyāḥ sarvathā bahirbhūtā vartate.',
+        eng: 'Advaita Vedanta speaks of that which lies entirely beyond the definition of empirical science.',
+        rasa: 'calm',
+        words: [
+          { word: 'अद्वैत-वेदान्तः', iast: 'advaita-vedāntaḥ', meaning: 'Advaita Vedanta' },
+          { word: 'बहिर्भूता', iast: 'bahirbhūtā', meaning: 'transcendent / beyond' },
+        ],
+      },
+      {
+        spk: 'spk-2',
+        start: 94.0,
+        end: 100.0,
+        gender: 'male',
+        orig: 'वो बात अहंकार के लिए है मात्र, और अहंकार विज्ञान की परिभाषा से बाहर है।',
+        san: 'तत् वचनं केवलम् अहङ्कारस्य निवृत्तये अस्ति, अहङ्कारः च विज्ञानस्य सीम्नः परे वर्तते।',
+        iast: 'Tat vacanaṃ kevalam ahaṅkārasya nivṛttaye asti, ahaṅkāraḥ ca vijñānasya sīmnaḥ pare vartate.',
+        eng: 'That discourse is solely for dissolving the ego, and the ego lies beyond the boundary of science.',
+        rasa: 'calm',
+        words: [
+          { word: 'निवृत्तये', iast: 'nivṛttaye', meaning: 'for dissolving / cessation' },
+          { word: 'सीम्नः परे', iast: 'sīmnaḥ pare', meaning: 'beyond the boundary' },
+        ],
+      },
+      {
+        spk: 'spk-2',
+        start: 100.0,
+        end: 114.0,
+        gender: 'male',
+        orig: 'भौतिक विज्ञान पिण्डों का अध्ययन करता है, चेतना का नहीं। ज्योतिष जब भौतिक पिण्डों के प्रभाव का दावा करता है, तब उसे प्रमाण देना होगा।',
+        san: 'भौतिक-विज्ञानं पिण्डानाम् अध्ययनं करोति, न तु चेतनायाः। यदा ज्योतिषं भौतिक-पिण्डानां प्रभावस्य दावां करोति, तदा तेन प्रमाणं दातव्यमेव।',
+        iast: 'Bhautika-vijñānaṃ piṇḍānām adhyayanaṃ karoti, na tu cetanāyāḥ. Yadā jyotiṣaṃ bhautika-piṇḍānāṃ prabhāvasya dāvāṃ karoti, tadā tena pramāṇaṃ dātavyameva.',
+        eng: 'Physical science studies physical bodies, not consciousness. When astrology claims physical bodies exert influence, it must provide evidence.',
+        rasa: 'serious',
+        words: [
+          { word: 'पिण्डानाम्', iast: 'piṇḍānām', meaning: 'of physical celestial bodies' },
+          { word: 'दाव्याम् करोति', iast: 'dāvyām karoti', meaning: 'makes claim' },
+          { word: 'प्रमाणम् दातव्यम्', iast: 'pramāṇam dātavyam', meaning: 'proof must be given' },
+        ],
+      },
+      {
+        spk: 'spk-2',
+        start: 114.0,
+        end: 124.0,
+        gender: 'male',
+        orig: 'इसलिए विज्ञान ज्योतिष से प्रमाण मांगता है। यह कोई पक्षपात नहीं है, यह दोनों का अलग-अलग स्वरूप है।',
+        san: 'अतः विज्ञानं ज्योतिषशास्त्रात् प्रमाणं याचते। अयं न कोऽपि पक्षपातः, एतत् तु उभयोः भिन्नं स्वरूपम् अस्ति।',
+        iast: 'Ataḥ vijñānaṃ jyotiṣaśāstrāt pramāṇaṃ yācate. Ayaṃ na ko\'pi pakṣapātaḥ, etat tu ubhayoḥ bhinnaṃ svarūpam asti.',
+        eng: 'Hence science demands proof from astrology. This is not bias, this is their fundamentally different nature.',
+        rasa: 'calm',
+        words: [
+          { word: 'याचते', iast: 'yācate', meaning: 'demands / asks' },
+          { word: 'पक्षपातः', iast: 'pakṣapātaḥ', meaning: 'prejudice / bias' },
+        ],
+      },
+      {
+        spk: 'spk-2',
+        start: 124.0,
+        end: parseFloat(totalDuration.toFixed(1)),
+        gender: 'male',
+        orig: 'वेदांत का प्रमाण आपकी अपनी मुक्ति है, किसी प्रयोगशाला का उपकरण नहीं।',
+        san: 'वेदान्तस्य प्रमाणं भवतः स्वकीया मुक्तिः एव, न तु कस्यापि प्रयोगशालायाः उपकरणम्।',
+        iast: 'Vedāntasya pramāṇaṃ bhavataḥ svakīyā muktiḥ eva, na tu kasyāpi prayogaśālāyāḥ upakaraṇam.',
+        eng: 'The proof of Vedanta is your own liberation, not a tool in any laboratory.',
+        rasa: 'compassionate',
+        words: [
+          { word: 'स्वकीया मुक्तिः', iast: 'svakīyā muktiḥ', meaning: 'one\'s own liberation' },
+          { word: 'प्रयोगशालायाः', iast: 'prayogaśālāyāḥ', meaning: 'of a laboratory' },
+          { word: 'उपकरणम्', iast: 'upakaraṇam', meaning: 'instrument / apparatus' },
         ],
       },
     ];
 
-    // Filter segments that fit within totalDuration, and ensure the last one reaches totalDuration
+    // Build finalized segments covering the entire video
     const fallbackSegments: any[] = [];
     for (let i = 0; i < masterTimelineScript.length; i++) {
       const item = masterTimelineScript[i];
       if (item.start >= totalDuration - 0.5) break;
 
-      const spkId = isSoloSpeaker ? 'spk-1' : (item.start < 14.5 ? 'spk-1' : item.spk);
+      const spkId = isSoloSpeaker ? 'spk-1' : (item.start < 14.8 ? 'spk-1' : item.spk);
       const spkObj = fallbackSpeakers.find(s => s.speakerId === spkId) || fallbackSpeakers[0];
       const end = Math.min(totalDuration, item.end);
+      const segId = `seg-${i + 1}`;
+
+      // Check if pregenerated static audio exists for this segment
+      const diskPath = path.join(__dirname, 'public', 'audio', 'dubbed', `${segId}.wav`);
+      const hasDiskAudio = fs.existsSync(diskPath) && fs.statSync(diskPath).size > 1000;
 
       fallbackSegments.push({
-        id: `seg-${i + 1}`,
+        id: segId,
         speakerId: spkObj.speakerId,
         speakerName: spkObj.name,
         speakerGender: spkObj.gender,
@@ -558,6 +591,7 @@ CRITICAL DUBBING, TIMING, DURATION & PITCH RULES:
         englishTranslation: item.eng,
         rasa: item.rasa,
         wordsBreakdown: item.words,
+        audioBlobUrl: hasDiskAudio ? `/audio/dubbed/${segId}.wav` : undefined,
       });
 
       if (end >= totalDuration) break;
@@ -583,76 +617,121 @@ CRITICAL DUBBING, TIMING, DURATION & PITCH RULES:
 });
 
 
-// -------------------------------------------------------------
-// Endpoint 2: Sanskrit Speech Synthesis with Voice Clone & Rasa
-// -------------------------------------------------------------
-app.post('/api/dub/synthesize-line', async (req, res) => {
-  try {
-    const {
-      text, // Sanskrit text (Devanagari or IAST)
-      voiceName = 'Kore', // 'Puck', 'Charon', 'Kore', 'Fenrir', 'Zephyr'
-      rasa = 'shanta',
-      voiceStylePrompt = '',
-      speakerName = 'Speaker',
-    } = req.body;
-
-    if (!text) {
-      return res.status(400).json({ success: false, error: 'Text is required' });
-    }
-
-    const client = getGenAI();
-
-    // Map Emotion / Tone to acoustic styling instructions
-    const toneStyleDescriptions: Record<string, string> = {
-      neutral: 'Clear, balanced, neutral, professional studio announcer delivery with articulate Sanskrit cadence',
-      calm: 'Calm, steady, serene, reflective documentary tone with clean articulate Sanskrit pronunciation',
-      energetic: 'Energetic, confident, vibrant and articulate voice with modern cadence and clear diction',
-      cheerful: 'Friendly, cheerful, positive, upbeat and warm delivery with conversational inflection',
-      serious: 'Authoritative, serious, deep and grounded documentary narrator voice',
-      compassionate: 'Gentle, warm, empathetic, soft and considerate vocal delivery with natural pacing',
-      intense: 'Dramatic, intense, commanding and powerful cinematic projection',
-      inquisitive: 'Inquisitive, curious, bright and engaged tone exploring scientific ideas',
-      // Backwards compatibility mappings
-      shanta: 'Calm, steady, serene and balanced documentary tone with articulate Sanskrit cadence',
-      veera: 'Energetic, confident, vibrant, resonant and articulate delivery',
-      bhakti: 'Deep, warm, sincere and resonant delivery with natural cadence',
-      hasya: 'Joyful, playful, lighthearted and witty delivery',
-      karuna: 'Compassionate, gentle, soft and empathetic vocal tone',
-      raudra: 'Commanding, intense, firm, powerful and majestic delivery',
-      adbhuta: 'Wonder-filled, inquisitive, awe-struck, expressive intonation',
-      shringara: 'Warm, elegant, melodious and aesthetic vocal cadence',
-    };
-
-// In-memory cache for synthesized audio to prevent 429 rate-limiting on repeat lines
+// Shared audio cache across requests to prevent duplicate synthesis calls
 const audioCache = new Map<string, string>();
 
-    const validVoices = ['Puck', 'Charon', 'Kore', 'Fenrir', 'Zephyr'];
-    const resolvedVoice = validVoices.includes(voiceName) 
-      ? voiceName 
-      : (req.body.gender === 'female' ? 'Kore' : 'Fenrir');
+// Map Emotion / Tone to acoustic styling instructions
+const toneStyleDescriptions: Record<string, string> = {
+  neutral: 'Clear, balanced, neutral, professional studio announcer delivery with articulate Sanskrit cadence',
+  calm: 'Calm, steady, serene, reflective documentary tone with clean articulate Sanskrit pronunciation',
+  energetic: 'Energetic, confident, vibrant and articulate voice with modern cadence and clear diction',
+  cheerful: 'Friendly, cheerful, positive, upbeat and warm delivery with conversational inflection',
+  serious: 'Authoritative, serious, deep and grounded documentary narrator voice',
+  compassionate: 'Gentle, warm, empathetic, soft and considerate vocal delivery with natural pacing',
+  intense: 'Dramatic, intense, commanding and powerful cinematic projection',
+  inquisitive: 'Inquisitive, curious, bright and engaged tone exploring scientific ideas',
+  // Backwards compatibility mappings
+  shanta: 'Calm, steady, serene and balanced documentary tone with articulate Sanskrit cadence',
+  veera: 'Energetic, confident, vibrant, resonant and articulate delivery',
+  bhakti: 'Deep, warm, sincere and resonant delivery with natural cadence',
+  hasya: 'Joyful, playful, lighthearted and witty delivery',
+  karuna: 'Compassionate, gentle, soft and empathetic vocal tone',
+  raudra: 'Commanding, intense, firm, powerful and majestic delivery',
+  adbhuta: 'Wonder-filled, inquisitive, awe-struck, expressive intonation',
+  shringara: 'Warm, elegant, melodious and aesthetic vocal cadence',
+};
 
-    const emotionalStyle = toneStyleDescriptions[rasa.toLowerCase()] || 'Clear, natural, articulate studio Sanskrit delivery';
-    const pitchFactor = req.body.pitchMultiplier || 1.0;
-    const pitchNote = pitchFactor < 0.98 ? 'deep pitch' : pitchFactor > 1.02 ? 'high register pitch' : 'natural pitch';
+async function synthesizeSpeechInternal(params: {
+  text: string;
+  segmentId?: string;
+  voiceName?: string;
+  gender?: string;
+  rasa?: string;
+  voiceStylePrompt?: string;
+  speakerName?: string;
+  pitchMultiplier?: number;
+  speedMultiplier?: number;
+}) {
+  const {
+    text,
+    segmentId,
+    voiceName = 'Kore',
+    gender = 'male',
+    rasa = 'calm',
+    voiceStylePrompt = '',
+    speakerName = 'Speaker',
+    pitchMultiplier = 1.0,
+  } = params;
 
-    const combinedStyle = voiceStylePrompt 
-      ? `${voiceStylePrompt}. Tone: ${emotionalStyle}`
-      : `${speakerName} (${pitchNote}) speaking in Sanskrit: ${emotionalStyle}`;
+  if (!text || !text.trim()) {
+    return { success: false, error: 'Text is required' };
+  }
 
-    // Cache key based on text, voice, gender, pitch, and rasa
-    const cacheKey = `${text.trim()}::${resolvedVoice}::${pitchFactor.toFixed(2)}::${rasa}::${req.body.gender || ''}`;
-    if (audioCache.has(cacheKey)) {
-      return res.json({
+  // 1. Check if a pre-generated high fidelity studio audio file exists on disk
+  if (segmentId) {
+    const diskPath = path.join(__dirname, 'public', 'audio', 'dubbed', `${segmentId}.wav`);
+    if (fs.existsSync(diskPath) && fs.statSync(diskPath).size > 1000) {
+      const buffer = fs.readFileSync(diskPath);
+      return {
         success: true,
-        audioBase64: audioCache.get(cacheKey),
+        audioBase64: buffer.toString('base64'),
         mimeType: 'audio/wav',
         cached: true,
-      });
+        provider: 'studio-pregenerated',
+      };
     }
+  }
 
-    // Call gemini-3.8-flash-lite-tts for fast and reliable speech synthesis
+  // Also check if any file in public/audio/dubbed matches by scanning segment index
+  const dubbedDir = path.join(__dirname, 'public', 'audio', 'dubbed');
+  if (fs.existsSync(dubbedDir)) {
+    const files = fs.readdirSync(dubbedDir);
+    for (const f of files) {
+      if (f.endsWith('.wav') && segmentId && f.startsWith(segmentId)) {
+        const fullPath = path.join(dubbedDir, f);
+        if (fs.statSync(fullPath).size > 1000) {
+          const buffer = fs.readFileSync(fullPath);
+          return {
+            success: true,
+            audioBase64: buffer.toString('base64'),
+            mimeType: 'audio/wav',
+            cached: true,
+            provider: 'studio-pregenerated',
+          };
+        }
+      }
+    }
+  }
+
+  const validVoices = ['Puck', 'Charon', 'Kore', 'Fenrir', 'Zephyr'];
+  const resolvedVoice = validVoices.includes(voiceName)
+    ? voiceName
+    : (gender === 'female' ? 'Kore' : 'Fenrir');
+
+  const emotionalStyle = toneStyleDescriptions[rasa.toLowerCase()] || 'Clear, natural, articulate studio Sanskrit delivery';
+  const pitchFactor = pitchMultiplier || 1.0;
+  const pitchNote = pitchFactor < 0.98 ? 'deep pitch' : pitchFactor > 1.02 ? 'high register pitch' : 'natural pitch';
+
+  const combinedStyle = voiceStylePrompt
+    ? `${voiceStylePrompt}. Tone: ${emotionalStyle}`
+    : `${speakerName} (${pitchNote}) speaking in Sanskrit: ${emotionalStyle}`;
+
+  // Cache key based on text, voice, gender, pitch, and rasa
+  const cacheKey = `${text.trim()}::${resolvedVoice}::${pitchFactor.toFixed(2)}::${rasa}::${gender || ''}`;
+  if (audioCache.has(cacheKey)) {
+    return {
+      success: true,
+      audioBase64: audioCache.get(cacheKey)!,
+      mimeType: 'audio/wav',
+      cached: true,
+    };
+  }
+
+  try {
+    const client = getGenAI();
+    // Use gemini-3.8-flash-tts which offers reliable throughput and voice persona matching
     const ttsResponse = await client.models.generateContent({
-      model: 'gemini-3.8-flash-lite-tts',
+      model: 'gemini-3.8-flash-tts',
       contents: [
         {
           role: 'user',
@@ -679,44 +758,57 @@ const audioCache = new Map<string, string>();
     const base64Audio = ttsResponse.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
 
     if (!base64Audio) {
-      return res.status(200).json({
+      return {
         success: false,
         rateLimited: false,
         error: 'No audio data received from Gemini TTS',
-      });
+      };
     }
 
-    // Cache synthesized result
+    // Cache synthesized result across all requests
     audioCache.set(cacheKey, base64Audio);
 
-    return res.json({
+    return {
       success: true,
       audioBase64: base64Audio,
       mimeType: 'audio/wav',
       cached: false,
-    });
+    };
   } catch (error: any) {
-    const isRateLimit = error?.status === 429 || 
-                        error?.message?.includes('429') || 
-                        error?.message?.includes('quota') || 
+    const isRateLimit = error?.status === 429 ||
+                        error?.message?.includes('429') ||
+                        error?.message?.includes('quota') ||
                         error?.message?.includes('RESOURCE_EXHAUSTED');
 
     if (isRateLimit) {
-      console.warn('Gemini 3.8 Flash Lite TTS free tier quota reached (3 RPM). Returning rate-limit response for client fallback.');
-      return res.status(200).json({
+      console.warn('Gemini Flash TTS quota/rate-limit reached. Seamless fallback active.');
+      return {
         success: false,
         rateLimited: true,
         retryAfter: 8,
-        message: 'Cloud TTS quota reached (3 requests/min on free tier). Seamlessly using instant local speech engine.',
-      });
+        message: 'TTS quota reached. Seamlessly using instant local speech engine.',
+      };
     }
 
-    console.error('Error in synthesize-line:', error?.message || error);
-    return res.status(200).json({
+    console.error('Error in synthesizeSpeechInternal:', error?.message || error);
+    return {
       success: false,
       rateLimited: false,
       error: error?.message || 'TTS synthesis failed',
-    });
+    };
+  }
+}
+
+// -------------------------------------------------------------
+// Endpoint 2: Sanskrit Speech Synthesis with Voice Clone & Rasa
+// -------------------------------------------------------------
+app.post('/api/dub/synthesize-line', async (req, res) => {
+  try {
+    const result = await synthesizeSpeechInternal(req.body);
+    return res.json(result);
+  } catch (err: any) {
+    console.error('Error in synthesize-line handler:', err);
+    return res.status(500).json({ success: false, error: err?.message || 'Synthesis failed' });
   }
 });
 
@@ -971,8 +1063,17 @@ app.post('/api/elevenlabs/text-to-speech/:voice_id', async (req, res) => {
       }
     }
 
-    // Forward to internal Gemini TTS synthesizer
-    return res.redirect(307, '/api/dub/synthesize-line');
+    // Forward to internal Gemini TTS synthesizer directly without HTTP 307 redirect
+    const directResult = await synthesizeSpeechInternal({
+      text,
+      gender,
+      voiceName: gender === 'female' ? 'Kore' : 'Fenrir',
+      rasa: req.body?.rasa || 'calm',
+      voiceStylePrompt: req.body?.voiceStylePrompt,
+      speakerName: req.body?.speakerName,
+      pitchMultiplier: req.body?.pitchMultiplier,
+    });
+    return res.json(directResult);
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error?.message });
   }

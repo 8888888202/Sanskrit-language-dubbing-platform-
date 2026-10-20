@@ -58,6 +58,7 @@ class SanskritSynthesizer {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          segmentId: segment.id,
           text: segment.sanskritDevanagari,
           voiceName: speaker.voiceName,
           gender: speaker.gender,
@@ -189,12 +190,17 @@ class SanskritSynthesizer {
     };
   }
 
-  // Unified synthesizer: Tries ElevenLabs first if key or voice exists, then Gemini, then local speech
+  // Unified synthesizer: Tries existing audio, ElevenLabs, Gemini, then local speech
   async synthesizeDubbedSegment(
     segment: DubbingSegment,
     speaker: Speaker,
     elevenApiKey?: string
   ): Promise<string | null> {
+    // 0. If segment already has pregenerated or verified audio URL, return immediately!
+    if (segment.audioBlobUrl) {
+      return segment.audioBlobUrl;
+    }
+
     const key = elevenApiKey || (typeof localStorage !== 'undefined' ? localStorage.getItem('elevenlabs_api_key') || '' : '');
     
     // 1. Try ElevenLabs TTS
@@ -203,7 +209,7 @@ class SanskritSynthesizer {
       if (elUrl) return elUrl;
     }
 
-    // 2. Try Gemini Flash Lite TTS
+    // 2. Try Gemini Flash TTS with segmentId disk cache
     const geminiUrl = await this.synthesizeWithGemini(segment, speaker);
     if (geminiUrl) return geminiUrl;
 
@@ -315,21 +321,26 @@ class SanskritSynthesizer {
         v.name.toLowerCase().includes('india')
       );
 
-      // Gender-specific voice search
+      // Gender-specific voice search: strictly match female vs male voice models
       const isFemale = speaker.gender === 'female';
-      const genderVoice = voices.find(v => {
+      
+      const matchedGenderVoice = voices.find(v => {
         const name = v.name.toLowerCase();
         if (isFemale) {
-          return name.includes('female') || name.includes('zira') || name.includes('samantha') || name.includes('kore') || name.includes('victoria');
+          const isF = name.includes('female') || name.includes('woman') || name.includes('zira') || name.includes('samantha') || name.includes('kore') || name.includes('swara') || name.includes('kalpana') || name.includes('victoria');
+          return isF;
         } else {
-          return name.includes('male') || name.includes('david') || name.includes('george') || name.includes('fenrir') || name.includes('alex');
+          const isM = name.includes('male') || name.includes('man') || name.includes('david') || name.includes('george') || name.includes('fenrir') || name.includes('madhav') || name.includes('alex');
+          return isM;
         }
       });
 
-      const selectedVoice = indicVoice || genderVoice || voices[0];
+      const selectedVoice = matchedGenderVoice || (isFemale 
+        ? voices.find(v => v.name.toLowerCase().includes('female') || v.name.toLowerCase().includes('zira') || v.name.toLowerCase().includes('samantha')) 
+        : (indicVoice || voices[0]));
       
-      // CRITICAL FIX: If using an Indic voice, pass Devanagari script.
-      // If using an English/Western voice (which can't parse Devanagari Unicode), pass Roman IAST transliteration!
+      // If using an Indic voice that supports Devanagari Unicode, pass Devanagari.
+      // If using a Western voice (which can't speak Devanagari glyphs), pass Roman IAST transliteration!
       const isIndicVoice = selectedVoice && (selectedVoice.lang.startsWith('hi') || selectedVoice.lang.startsWith('sa'));
       const textToSpeak = isIndicVoice 
         ? segment.sanskritDevanagari 
@@ -344,8 +355,10 @@ class SanskritSynthesizer {
         utterance.lang = 'en-US';
       }
 
-      // Voice pitch & speed modification based on speaker model & emotion
-      let pitchMod = isFemale ? 1.2 : 0.88;
+      // Voice pitch & speed modification:
+      // Woman: strictly high questioning pitch (~300 Hz, 1.45x)
+      // Man: strictly resonant baritone (~120 Hz, 0.88x)
+      let pitchMod = isFemale ? 1.45 : 0.88;
       pitchMod *= (speaker.pitchMultiplier || 1.0);
       let rateMod = speaker.speedMultiplier || 1.0;
 
@@ -387,95 +400,46 @@ class SanskritSynthesizer {
         if (onEnded) onEnded();
       };
       utterance.onerror = (e) => {
-        console.warn('Speech synthesis error, using harmonic resonator:', e);
-        this.playHarmonicChant(isFemale, onEnded);
+        console.warn('Speech synthesis error:', e);
+        this.currentPlayingId = null;
+        if (onEnded) onEnded();
       };
 
       this.currentPlayingId = segment.id;
       window.speechSynthesis.speak(utterance);
     } else {
-      // Browser lacks speech synthesis - play melodic harmonic tone
-      this.playHarmonicChant(speaker.gender === 'female', onEnded);
-    }
-  }
-
-  // Harmonic speech simulation using Web Audio API formants
-  // Ensures sound ALWAYS plays, matching male/female vocal tract resonance
-  playHarmonicChant(isFemale: boolean, onEnded?: () => void): void {
-    try {
-      const ctx = this.getAudioContext();
-      const now = ctx.currentTime;
-      const duration = 2.4;
-
-      const f0 = isFemale ? 220 : 120; // Fundamental frequency (Female A3 / Male B2)
-      
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      
-      // Formant bandpass filter 1 (Vowel Formant F1: ~700Hz)
-      const filter1 = ctx.createBiquadFilter();
-      filter1.type = 'bandpass';
-      filter1.frequency.setValueAtTime(isFemale ? 800 : 650, now);
-      filter1.Q.setValueAtTime(4.0, now);
-
-      // Formant bandpass filter 2 (Vowel Formant F2: ~1800Hz)
-      const filter2 = ctx.createBiquadFilter();
-      filter2.type = 'bandpass';
-      filter2.frequency.setValueAtTime(isFemale ? 2200 : 1600, now);
-      filter2.Q.setValueAtTime(3.5, now);
-
-      osc.type = 'sawtooth';
-      osc.frequency.setValueAtTime(f0, now);
-      
-      // Vibrato / vocal fluctuation
-      const vibrato = ctx.createOscillator();
-      const vibratoGain = ctx.createGain();
-      vibrato.frequency.setValueAtTime(5.5, now);
-      vibratoGain.gain.setValueAtTime(3.5, now);
-      vibrato.connect(vibratoGain);
-      vibratoGain.connect(osc.frequency);
-
-      // Amplitude envelope (3 Sanskrit syllables rhythm)
-      gain.gain.setValueAtTime(0, now);
-      gain.gain.linearRampToValueAtTime(0.12, now + 0.1);
-      gain.gain.setValueAtTime(0.09, now + 0.6);
-      gain.gain.linearRampToValueAtTime(0.14, now + 0.8);
-      gain.gain.setValueAtTime(0.10, now + 1.4);
-      gain.gain.linearRampToValueAtTime(0.15, now + 1.6);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
-
-      osc.connect(filter1);
-      osc.connect(filter2);
-      filter1.connect(gain);
-      filter2.connect(gain);
-      gain.connect(ctx.destination);
-
-      osc.start(now);
-      vibrato.start(now);
-      osc.stop(now + duration);
-      vibrato.stop(now + duration);
-
-      setTimeout(() => {
-        this.currentPlayingId = null;
-        if (onEnded) onEnded();
-      }, duration * 1000);
-    } catch (e) {
       if (onEnded) onEnded();
     }
   }
 
-  // Play audio url (Blob or remote)
+  // Play audio url (Blob or remote) with pitch preservation & natural speed constraint
   playAudioUrl(
     url: string,
     id: string,
     onEnded?: () => void,
-    speedMultiplier?: number
+    speedMultiplier?: number,
+    targetDuration?: number
   ): HTMLAudioElement {
     this.stopPlayback();
 
     const audio = new Audio(url);
-    if (speedMultiplier && speedMultiplier >= 0.6 && speedMultiplier <= 1.6) {
+    // Anti-chipmunk pitch lock
+    audio.preservesPitch = true;
+    (audio as any).mozPreservesPitch = true;
+    (audio as any).webkitPreservesPitch = true;
+
+    if (speedMultiplier && speedMultiplier >= 0.85 && speedMultiplier <= 1.2) {
       audio.playbackRate = speedMultiplier;
+    }
+
+    if (targetDuration && targetDuration > 0) {
+      audio.onloadedmetadata = () => {
+        if (audio.duration && audio.duration > 0) {
+          // Keep strictly within natural conversational range (0.92x to 1.12x)
+          const syncSpeed = Math.max(0.92, Math.min(1.12, audio.duration / targetDuration));
+          audio.playbackRate = syncSpeed * (speedMultiplier || 1.0);
+        }
+      };
     }
     this.currentAudio = audio;
     this.currentPlayingId = id;
